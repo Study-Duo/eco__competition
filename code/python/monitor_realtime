@@ -1,0 +1,985 @@
+"""
+TEG温差发电实时数据采集与分析系统（简化版）
+功能：实时读取串口数据、绘制图表、数据分析
+"""
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from matplotlib.animation import FuncAnimation
+import serial
+import serial.tools.list_ports
+import threading
+import time
+import os
+from datetime import datetime
+from scipy import stats
+from collections import deque
+import sys
+
+# 设置中文字体
+plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
+plt.rcParams['axes.unicode_minus'] = False
+
+class SimpleTEGAnalyzer:
+    """简化的TEG分析器"""
+    
+    def __init__(self, port=None, baudrate=115200, buffer_size=500):
+        """
+        初始化分析器
+        
+        参数:
+        port: 串口号，如果为None则自动检测
+        baudrate: 波特率
+        buffer_size: 数据缓冲区大小
+        """
+        self.port = port
+        self.baudrate = baudrate
+        self.serial_conn = None
+        self.is_connected = False
+        self.is_running = False
+        
+        # 数据缓冲区
+        self.buffer_size = buffer_size
+        self.data_buffer = {
+            'timestamp': deque(maxlen=self.buffer_size),
+            'hot_temp': deque(maxlen=self.buffer_size),
+            'cold_temp': deque(maxlen=self.buffer_size),
+            'temp_diff': deque(maxlen=self.buffer_size),
+            'voltage': deque(maxlen=self.buffer_size),
+            'power': deque(maxlen=self.buffer_size),
+            'seebeck': deque(maxlen=self.buffer_size)
+        }
+        
+        # 统计信息
+        self.data_count = 0
+        self.start_time = None
+        
+        # 线程控制
+        self.serial_thread = None
+        self.stop_event = threading.Event()
+        
+        # 数据保存
+        self.save_data = False
+        self.csv_file = None
+        self.csv_writer = None
+        
+        print(f"TEG分析器初始化完成，缓冲区大小: {self.buffer_size}")
+    
+    def auto_detect_port(self):
+        """自动检测Arduino串口"""
+        try:
+            ports = list(serial.tools.list_ports.comports())
+            
+            if not ports:
+                print("未检测到任何串口设备")
+                return None
+            
+            print("检测到以下串口设备:")
+            for port in ports:
+                print(f"  {port.device}: {port.description}")
+            
+            # 优先选择Arduino设备
+            for port in ports:
+                desc_lower = port.description.lower()
+                if ('arduino' in desc_lower or 
+                    'ch340' in desc_lower or 
+                    'cp210' in desc_lower):
+                    print(f"自动选择Arduino端口: {port.device}")
+                    return port.device
+            
+            # 如果没有Arduino，让用户选择
+            print("\n请选择串口:")
+            for i, port in enumerate(ports, 1):
+                print(f"{i}. {port.device}: {port.description}")
+            
+            while True:
+                try:
+                    choice = int(input("请输入序号: ")) - 1
+                    if 0 <= choice < len(ports):
+                        return ports[choice].device
+                    else:
+                        print("序号无效，请重新输入")
+                except ValueError:
+                    print("请输入数字")
+                    
+        except Exception as e:
+            print(f"检测串口时出错: {e}")
+            return None
+    
+    def connect_serial(self):
+        """连接串口"""
+        if self.is_connected:
+            print("串口已连接")
+            return True
+        
+        port = self.port
+        if port is None:
+            port = self.auto_detect_port()
+            if port is None:
+                return False
+        
+        try:
+            print(f"正在连接串口 {port} (波特率: {self.baudrate})...")
+            
+            self.serial_conn = serial.Serial(
+                port=port,
+                baudrate=self.baudrate,
+                timeout=0.5
+            )
+            
+            # 等待连接稳定
+            time.sleep(2)
+            
+            # 清空缓冲区
+            self.serial_conn.reset_input_buffer()
+            self.serial_conn.reset_output_buffer()
+            
+            self.is_connected = True
+            self.start_time = time.time()
+            print(f"串口连接成功: {port}")
+            return True
+            
+        except serial.SerialException as e:
+            print(f"串口连接失败: {e}")
+            print("请检查:")
+            print(f"1. 端口 {port} 是否正确")
+            print("2. Arduino是否已连接")
+            print("3. 是否有其他程序占用串口")
+            return False
+        except Exception as e:
+            print(f"连接过程中发生错误: {e}")
+            return False
+    
+    def start_data_acquisition(self):
+        """开始数据采集"""
+        if not self.is_connected:
+            if not self.connect_serial():
+                return False
+        
+        # 重置状态
+        self.stop_event.clear()
+        self.data_count = 0
+        
+        # 清空缓冲区
+        for key in self.data_buffer:
+            self.data_buffer[key].clear()
+        
+        # 启动串口读取线程
+        self.is_running = True
+        self.serial_thread = threading.Thread(
+            target=self._read_serial_data, 
+            daemon=True,
+            name="SerialReadThread"
+        )
+        self.serial_thread.start()
+        
+        print("数据采集已启动")
+        print("按Ctrl+C停止程序")
+        
+        return True
+    
+    def _read_serial_data(self):
+        """串口数据读取线程"""
+        print("串口读取线程开始运行")
+        
+        error_count = 0
+        max_errors = 10
+        
+        while self.is_running and not self.stop_event.is_set():
+            try:
+                if not self.serial_conn or not self.is_connected:
+                    print("串口未连接，线程退出")
+                    break
+                
+                # 读取一行数据
+                line = self.serial_conn.readline()
+                
+                if not line:
+                    time.sleep(0.01)
+                    continue
+                
+                # 解码数据
+                try:
+                    decoded = line.decode('utf-8', errors='ignore').strip()
+                except:
+                    continue
+                
+                if not decoded:
+                    continue
+                
+                # 跳过非数据行（不以数字或负号开头）
+                if not (decoded[0].isdigit() or decoded[0] == '-'):
+                    if "时间戳" in decoded or "timestamp" in decoded.lower():
+                        print(f"检测到标题行: {decoded}")
+                    continue
+                
+                # 解析CSV数据
+                parts = decoded.split(',')
+                if len(parts) >= 5:
+                    # 解析数据
+                    timestamp = float(parts[0])
+                    hot_temp = float(parts[1])
+                    cold_temp = float(parts[2])
+                    temp_diff = float(parts[3])
+                    voltage = float(parts[4])
+                    
+                    # 计算功率（假设负载10Ω）
+                    power = (voltage ** 2 / 10) * 1000 if abs(voltage) > 0.001 else 0
+                    
+                    # 计算塞贝克系数
+                    seebeck = voltage * 1000 / temp_diff if abs(temp_diff) > 0.1 else 0
+                    
+                    # 添加到缓冲区
+                    self.data_buffer['timestamp'].append(timestamp)
+                    self.data_buffer['hot_temp'].append(hot_temp)
+                    self.data_buffer['cold_temp'].append(cold_temp)
+                    self.data_buffer['temp_diff'].append(temp_diff)
+                    self.data_buffer['voltage'].append(voltage)
+                    self.data_buffer['power'].append(power)
+                    self.data_buffer['seebeck'].append(seebeck)
+                    
+                    # 更新统计
+                    self.data_count += 1
+                    
+                    # 保存数据到文件（如果启用）
+                    if self.save_data and self.csv_writer:
+                        try:
+                            self.csv_writer.writerow([
+                                timestamp, hot_temp, cold_temp,
+                                temp_diff, voltage, power, seebeck
+                            ])
+                            if self.data_count % 10 == 0:
+                                self.csv_file.flush()
+                        except:
+                            pass
+                    
+                    error_count = 0  # 重置错误计数器
+                    
+                else:
+                    error_count += 1
+                    if error_count % 20 == 0:
+                        print(f"数据格式错误，已跳过 {error_count} 行")
+                
+                time.sleep(0.001)
+                
+            except Exception as e:
+                error_count += 1
+                if error_count % 10 == 0:
+                    print(f"读取数据时出错: {e}")
+                if error_count > max_errors:
+                    print("错误过多，停止读取线程")
+                    break
+                time.sleep(0.1)
+        
+        print("串口读取线程已停止")
+    
+    def stop_data_acquisition(self):
+        """停止数据采集"""
+        print("正在停止数据采集...")
+        self.is_running = False
+        self.stop_event.set()
+        
+        if self.serial_thread and self.serial_thread.is_alive():
+            self.serial_thread.join(timeout=1.0)
+        
+        if self.save_data:
+            self._stop_data_saving()
+        
+        print("数据采集已停止")
+    
+    def enable_data_saving(self, enable=True):
+        """启用/禁用数据保存"""
+        self.save_data = enable
+        
+        if enable:
+            self._start_data_saving()
+        else:
+            self._stop_data_saving()
+    
+    def _start_data_saving(self):
+        """开始保存数据到CSV文件"""
+        if self.csv_file is not None:
+            try:
+                self.csv_file.close()
+            except:
+                pass
+        
+        # 生成文件名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"teg_data_{timestamp}.csv"
+        
+        # 确保数据目录存在
+        data_dir = "teg_data"
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+        
+        filepath = os.path.join(data_dir, filename)
+        
+        try:
+            import csv
+            self.csv_file = open(filepath, 'w', newline='', encoding='utf-8')
+            self.csv_writer = csv.writer(self.csv_file)
+            
+            # 写入标题
+            self.csv_writer.writerow([
+                '时间戳(ms)', '热端温度(°C)', '冷端温度(°C)', 
+                '温差(°C)', '开路电压(V)', '功率(mW)', '塞贝克系数(mV/°C)'
+            ])
+            self.csv_file.flush()
+            
+            print(f"数据保存到: {filepath}")
+            
+        except Exception as e:
+            print(f"创建数据文件失败: {e}")
+            self.save_data = False
+            self.csv_file = None
+            self.csv_writer = None
+    
+    def _stop_data_saving(self):
+        """停止保存数据"""
+        if self.csv_file is not None:
+            try:
+                self.csv_file.flush()
+                self.csv_file.close()
+                print("数据文件已关闭")
+            except:
+                pass
+            finally:
+                self.csv_file = None
+                self.csv_writer = None
+    
+    def get_buffer_data(self):
+        """获取缓冲区中的所有数据"""
+        return {
+            'timestamp': list(self.data_buffer['timestamp']),
+            'hot_temp': list(self.data_buffer['hot_temp']),
+            'cold_temp': list(self.data_buffer['cold_temp']),
+            'temp_diff': list(self.data_buffer['temp_diff']),
+            'voltage': list(self.data_buffer['voltage']),
+            'power': list(self.data_buffer['power']),
+            'seebeck': list(self.data_buffer['seebeck'])
+        }
+    
+    def calculate_statistics(self):
+        """计算统计信息"""
+        data = self.get_buffer_data()
+        
+        if not data['timestamp']:
+            return {}
+        
+        stats = {
+            '数据点数': self.data_count,
+            '采样频率': self.data_count / max(1, (time.time() - self.start_time)) if self.start_time else 0,
+            '热端温度': {
+                '当前': data['hot_temp'][-1] if data['hot_temp'] else 0,
+                '平均': np.mean(data['hot_temp']) if data['hot_temp'] else 0,
+                '最小': np.min(data['hot_temp']) if data['hot_temp'] else 0,
+                '最大': np.max(data['hot_temp']) if data['hot_temp'] else 0
+            },
+            '冷端温度': {
+                '当前': data['cold_temp'][-1] if data['cold_temp'] else 0,
+                '平均': np.mean(data['cold_temp']) if data['cold_temp'] else 0,
+                '最小': np.min(data['cold_temp']) if data['cold_temp'] else 0,
+                '最大': np.max(data['cold_temp']) if data['cold_temp'] else 0
+            },
+            '温差': {
+                '当前': data['temp_diff'][-1] if data['temp_diff'] else 0,
+                '平均': np.mean(data['temp_diff']) if data['temp_diff'] else 0,
+                '最小': np.min(data['temp_diff']) if data['temp_diff'] else 0,
+                '最大': np.max(data['temp_diff']) if data['temp_diff'] else 0
+            },
+            '电压': {
+                '当前': data['voltage'][-1] if data['voltage'] else 0,
+                '平均': np.mean(data['voltage']) if data['voltage'] else 0,
+                '最小': np.min(data['voltage']) if data['voltage'] else 0,
+                '最大': np.max(data['voltage']) if data['voltage'] else 0
+            },
+            '功率': {
+                '当前': data['power'][-1] if data['power'] else 0,
+                '平均': np.mean(data['power']) if data['power'] else 0,
+                '最大': np.max(data['power']) if data['power'] else 0
+            }
+        }
+        
+        # 线性回归分析（温差-电压）
+        if len(data['temp_diff']) > 5:
+            temp_diff = np.array(data['temp_diff'])
+            voltage = np.array(data['voltage'])
+            
+            # 移除异常值
+            mask = (np.abs(temp_diff) > 0.1) & (np.abs(temp_diff) < 100)
+            if np.sum(mask) > 5:
+                try:
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(
+                        temp_diff[mask], voltage[mask]
+                    )
+                    
+                    stats['线性回归'] = {
+                        '斜率(V/°C)': slope,
+                        '截距(V)': intercept,
+                        '相关系数R': r_value,
+                        'R平方': r_value**2,
+                        '塞贝克系数(mV/°C)': slope * 1000
+                    }
+                except:
+                    pass
+        
+        return stats
+    
+    def create_real_time_charts(self):
+        """创建实时图表"""
+        print("创建实时图表...")
+        
+        # 创建图形
+        fig = plt.figure(figsize=(15, 10))
+        fig.suptitle('TEG温差发电实时监测', fontsize=16, fontweight='bold')
+        
+        # 创建子图布局
+        gs = fig.add_gridspec(3, 2, hspace=0.3, wspace=0.3)
+        
+        # 1. 温差-电压散点图
+        ax1 = fig.add_subplot(gs[0, 0])
+        self.scatter1 = ax1.scatter([], [], c=[], cmap='plasma', alpha=0.7, s=30)
+        ax1.set_xlabel('温差 (°C)', fontsize=12)
+        ax1.set_ylabel('开路电压 (V)', fontsize=12)
+        ax1.set_title('温差-电压特性', fontsize=14)
+        ax1.grid(True, alpha=0.3)
+        
+        # 2. 温度时间序列
+        ax2 = fig.add_subplot(gs[0, 1])
+        self.line_hot, = ax2.plot([], [], 'r-', label='热端', linewidth=2)
+        self.line_cold, = ax2.plot([], [], 'b-', label='冷端', linewidth=2)
+        ax2.set_xlabel('时间 (秒)', fontsize=12)
+        ax2.set_ylabel('温度 (°C)', fontsize=12)
+        ax2.set_title('温度变化', fontsize=14)
+        ax2.grid(True, alpha=0.3)
+        ax2.legend()
+        
+        # 3. 电压时间序列
+        ax3 = fig.add_subplot(gs[1, 0])
+        self.line_voltage, = ax3.plot([], [], 'g-', label='电压', linewidth=2)
+        ax3.set_xlabel('时间 (秒)', fontsize=12)
+        ax3.set_ylabel('开路电压 (V)', fontsize=12)
+        ax3.set_title('电压变化', fontsize=14)
+        ax3.grid(True, alpha=0.3)
+        
+        # 4. 功率时间序列
+        ax4 = fig.add_subplot(gs[1, 1])
+        self.line_power, = ax4.plot([], [], 'orange', label='功率', linewidth=2)
+        ax4.set_xlabel('时间 (秒)', fontsize=12)
+        ax4.set_ylabel('功率 (mW)', fontsize=12)
+        ax4.set_title('输出功率', fontsize=14)
+        ax4.grid(True, alpha=0.3)
+        
+        # 5. 塞贝克系数时间序列
+        ax5 = fig.add_subplot(gs[2, 0])
+        self.line_seebeck, = ax5.plot([], [], 'purple', label='塞贝克系数', linewidth=2)
+        ax5.set_xlabel('时间 (秒)', fontsize=12)
+        ax5.set_ylabel('塞贝克系数 (mV/°C)', fontsize=12)
+        ax5.set_title('塞贝克系数变化', fontsize=14)
+        ax5.grid(True, alpha=0.3)
+        
+        # 6. 统计信息面板
+        ax6 = fig.add_subplot(gs[2, 1])
+        ax6.axis('off')
+        self.stats_text = ax6.text(0.02, 0.98, '正在初始化...', 
+                                  transform=ax6.transAxes, fontsize=10,
+                                  verticalalignment='top',
+                                  bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+        
+        # 设置初始坐标轴范围
+        for ax in [ax1, ax2, ax3, ax4, ax5]:
+            ax.set_xlim(0, 10)
+            ax.set_ylim(0, 1)
+        
+        # 存储图形对象
+        self.fig = fig
+        
+        # 创建动画
+        self.animation = FuncAnimation(
+            fig, 
+            self._update_charts,
+            interval=500,  # 每500ms更新一次
+            blit=False,
+            cache_frame_data=False,
+            repeat=True
+        )
+        
+        # 调整布局
+        plt.tight_layout()
+        
+        # 显示图形（阻塞模式）
+        plt.show()
+        
+        # 图表窗口关闭后，停止数据采集
+        self.stop_data_acquisition()
+        
+        print("图表窗口已关闭")
+    
+    def _update_charts(self, frame):
+        """更新图表"""
+        try:
+            # 获取数据
+            data = self.get_buffer_data()
+            
+            if not data['timestamp']:
+                return []
+            
+            # 计算相对时间（秒）
+            if data['timestamp']:
+                try:
+                    start_time = data['timestamp'][0]
+                    time_rel = [(t - start_time) / 1000.0 for t in data['timestamp']]
+                except:
+                    time_rel = list(range(len(data['timestamp'])))
+            else:
+                time_rel = []
+            
+            # 1. 更新温差-电压散点图
+            if data['temp_diff'] and data['voltage'] and data['hot_temp']:
+                try:
+                    # 只显示最近100个点
+                    n_points = min(100, len(data['temp_diff']))
+                    temp_diff_recent = data['temp_diff'][-n_points:]
+                    voltage_recent = data['voltage'][-n_points:]
+                    hot_temp_recent = data['hot_temp'][-n_points:]
+                    
+                    if temp_diff_recent and voltage_recent:
+                        # 更新散点数据
+                        self.scatter1.set_offsets(np.column_stack([temp_diff_recent, voltage_recent]))
+                        
+                        # 更新颜色
+                        self.scatter1.set_array(np.array(hot_temp_recent))
+                        
+                        # 自动调整坐标轴
+                        if len(temp_diff_recent) > 1:
+                            x_min, x_max = min(temp_diff_recent), max(temp_diff_recent)
+                            y_min, y_max = min(voltage_recent), max(voltage_recent)
+                            
+                            if x_max - x_min > 0.1:
+                                self.scatter1.axes.set_xlim(x_min - (x_max-x_min)*0.1, x_max + (x_max-x_min)*0.1)
+                            if y_max - y_min > 0.01:
+                                self.scatter1.axes.set_ylim(y_min - (y_max-y_min)*0.1, y_max + (y_max-y_min)*0.1)
+                except Exception as e:
+                    pass
+            
+            # 2. 更新温度时间序列
+            if time_rel and data['hot_temp'] and data['cold_temp']:
+                try:
+                    n_points = min(200, len(time_rel))
+                    time_rel_recent = time_rel[-n_points:]
+                    hot_temp_recent = data['hot_temp'][-n_points:]
+                    cold_temp_recent = data['cold_temp'][-n_points:]
+                    
+                    self.line_hot.set_data(time_rel_recent, hot_temp_recent)
+                    self.line_cold.set_data(time_rel_recent, cold_temp_recent)
+                    
+                    if time_rel_recent:
+                        self.line_hot.axes.set_xlim(max(0, time_rel_recent[0]), time_rel_recent[-1])
+                        y_min = min(min(hot_temp_recent), min(cold_temp_recent))
+                        y_max = max(max(hot_temp_recent), max(cold_temp_recent))
+                        if y_max - y_min > 0.1:
+                            self.line_hot.axes.set_ylim(y_min - (y_max-y_min)*0.1, y_max + (y_max-y_min)*0.1)
+                except Exception as e:
+                    pass
+            
+            # 3. 更新电压时间序列
+            if time_rel and data['voltage']:
+                try:
+                    n_points = min(200, len(time_rel))
+                    time_rel_recent = time_rel[-n_points:]
+                    voltage_recent = data['voltage'][-n_points:]
+                    
+                    self.line_voltage.set_data(time_rel_recent, voltage_recent)
+                    
+                    if time_rel_recent:
+                        self.line_voltage.axes.set_xlim(max(0, time_rel_recent[0]), time_rel_recent[-1])
+                        y_min, y_max = min(voltage_recent), max(voltage_recent)
+                        if y_max - y_min > 0.001:
+                            self.line_voltage.axes.set_ylim(y_min - (y_max-y_min)*0.1, y_max + (y_max-y_min)*0.1)
+                except Exception as e:
+                    pass
+            
+            # 4. 更新功率时间序列
+            if time_rel and data['power']:
+                try:
+                    n_points = min(200, len(time_rel))
+                    time_rel_recent = time_rel[-n_points:]
+                    power_recent = data['power'][-n_points:]
+                    
+                    self.line_power.set_data(time_rel_recent, power_recent)
+                    
+                    if time_rel_recent:
+                        self.line_power.axes.set_xlim(max(0, time_rel_recent[0]), time_rel_recent[-1])
+                        y_min, y_max = min(power_recent), max(power_recent)
+                        if y_max - y_min > 0.1:
+                            self.line_power.axes.set_ylim(y_min - (y_max-y_min)*0.1, y_max + (y_max-y_min)*0.1)
+                except Exception as e:
+                    pass
+            
+            # 5. 更新塞贝克系数时间序列
+            if time_rel and data['seebeck']:
+                try:
+                    n_points = min(200, len(time_rel))
+                    time_rel_recent = time_rel[-n_points:]
+                    # 过滤异常值
+                    seebeck_filtered = [s for s in data['seebeck'][-n_points:] if abs(s) < 1000]
+                    if len(seebeck_filtered) == n_points:
+                        self.line_seebeck.set_data(time_rel_recent, seebeck_filtered)
+                        
+                        if time_rel_recent:
+                            self.line_seebeck.axes.set_xlim(max(0, time_rel_recent[0]), time_rel_recent[-1])
+                            y_min, y_max = min(seebeck_filtered), max(seebeck_filtered)
+                            if y_max - y_min > 0.1:
+                                self.line_seebeck.axes.set_ylim(y_min - (y_max-y_min)*0.1, y_max + (y_max-y_min)*0.1)
+                except Exception as e:
+                    pass
+            
+            # 6. 更新统计信息面板
+            try:
+                stats_info = self.calculate_statistics()
+                
+                stats_str = "=== 实时统计信息 ===\n\n"
+                stats_str += f"数据点数: {stats_info.get('数据点数', 0)}\n"
+                
+                if '采样频率' in stats_info:
+                    stats_str += f"采样频率: {stats_info['采样频率']:.1f} Hz\n"
+                
+                if '热端温度' in stats_info:
+                    t = stats_info['热端温度']
+                    stats_str += f"热端温度: {t.get('当前', 0):.2f}°C\n"
+                
+                if '冷端温度' in stats_info:
+                    t = stats_info['冷端温度']
+                    stats_str += f"冷端温度: {t.get('当前', 0):.2f}°C\n"
+                
+                if '温差' in stats_info:
+                    d = stats_info['温差']
+                    stats_str += f"温差: {d.get('当前', 0):.2f}°C\n"
+                
+                if '电压' in stats_info:
+                    v = stats_info['电压']
+                    stats_str += f"电压: {v.get('当前', 0):.4f}V\n"
+                
+                if '功率' in stats_info:
+                    p = stats_info['功率']
+                    stats_str += f"功率: {p.get('当前', 0):.2f}mW\n"
+                
+                if '线性回归' in stats_info:
+                    lr = stats_info['线性回归']
+                    stats_str += f"\n塞贝克系数: {lr['塞贝克系数(mV/°C)']:.2f} mV/°C\n"
+                    stats_str += f"拟合优度R²: {lr['R平方']:.4f}\n"
+                
+                self.stats_text.set_text(stats_str)
+            except Exception as e:
+                pass
+            
+            return []
+            
+        except Exception as e:
+            return []
+    
+    def disconnect(self):
+        """断开连接"""
+        self.stop_data_acquisition()
+        
+        if self.serial_conn and self.is_connected:
+            try:
+                self.serial_conn.close()
+            except:
+                pass
+        
+        self.is_connected = False
+        print("系统已断开连接")
+
+
+def run_simple_monitor():
+    """运行简化的实时监测程序"""
+    print("=" * 60)
+    print("TEG温差发电实时监测系统")
+    print("=" * 60)
+    print()
+    
+    # 创建分析器
+    analyzer = SimpleTEGAnalyzer()
+    
+    # 询问是否保存数据
+    save_choice = input("是否保存数据到CSV文件? (y/n): ").strip().lower()
+    if save_choice == 'y':
+        analyzer.enable_data_saving(True)
+    
+    # 连接串口
+    if not analyzer.connect_serial():
+        print("连接串口失败，程序退出")
+        return
+    
+    # 启动数据采集
+    if not analyzer.start_data_acquisition():
+        print("启动数据采集失败，程序退出")
+        return
+    
+    print("\n系统已启动，正在等待数据...")
+    print("请确保Arduino正在发送数据")
+    print("窗口关闭后将停止程序")
+    print()
+    
+    # 等待几秒钟，确保有数据
+    time.sleep(3)
+    
+    try:
+        # 创建并显示实时图表
+        analyzer.create_real_time_charts()
+        
+    except KeyboardInterrupt:
+        print("\n检测到Ctrl+C，正在停止...")
+    except Exception as e:
+        print(f"程序运行出错: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        # 清理资源
+        analyzer.disconnect()
+        print("程序已退出")
+
+
+def analyze_saved_data():
+    """分析已保存的数据文件"""
+    print("=" * 60)
+    print("TEG数据分析工具")
+    print("=" * 60)
+    
+    # 检查数据目录
+    data_dir = "teg_data"
+    if not os.path.exists(data_dir):
+        print(f"数据目录 '{data_dir}' 不存在")
+        return
+    
+    # 列出CSV文件
+    csv_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
+    
+    if not csv_files:
+        print(f"在 '{data_dir}' 目录中没有找到CSV文件")
+        return
+    
+    print(f"找到 {len(csv_files)} 个数据文件:")
+    for i, f in enumerate(csv_files, 1):
+        print(f"{i}. {f}")
+    
+    # 选择文件
+    try:
+        choice = int(input("\n请选择要分析的文件序号: ")) - 1
+        if choice < 0 or choice >= len(csv_files):
+            print("无效的选择")
+            return
+    except ValueError:
+        print("请输入数字")
+        return
+    
+    filepath = os.path.join(data_dir, csv_files[choice])
+    
+    try:
+        # 读取数据
+        df = pd.read_csv(filepath)
+        
+        print(f"\n文件: {csv_files[choice]}")
+        print(f"数据点数: {len(df)}")
+        print(f"数据列: {list(df.columns)}")
+        
+        # 检查必要列
+        required_cols = ['热端温度(°C)', '冷端温度(°C)', '开路电压(V)']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        
+        if missing_cols:
+            print(f"错误: 缺少必要的列: {missing_cols}")
+            return
+        
+        # 计算温差
+        if '温差(°C)' not in df.columns:
+            df['温差(°C)'] = df['热端温度(°C)'] - df['冷端温度(°C)']
+        
+        # 计算功率
+        df['功率(mW)'] = (df['开路电压(V)'] ** 2 / 10) * 1000
+        
+        # 计算塞贝克系数
+        df['塞贝克系数(mV/°C)'] = df['开路电压(V)'] * 1000 / df['温差(°C)'].replace(0, np.nan)
+        
+        # 创建分析图表
+        create_analysis_charts(df, csv_files[choice])
+        
+    except Exception as e:
+        print(f"分析数据时出错: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def create_analysis_charts(df, filename):
+    """创建数据分析图表"""
+    print("创建分析图表...")
+    
+    # 创建图形
+    fig = plt.figure(figsize=(15, 10))
+    fig.suptitle(f'TEG数据分析 - {filename}', fontsize=16, fontweight='bold')
+    
+    # 创建子图
+    ax1 = plt.subplot(2, 3, 1)
+    ax2 = plt.subplot(2, 3, 2)
+    ax3 = plt.subplot(2, 3, 3)
+    ax4 = plt.subplot(2, 3, 4)
+    ax5 = plt.subplot(2, 3, 5)
+    ax6 = plt.subplot(2, 3, 6)
+    
+    # 1. 温差-电压散点图
+    scatter = ax1.scatter(df['温差(°C)'], df['开路电压(V)'], 
+                         c=df['热端温度(°C)'], cmap='plasma', 
+                         alpha=0.7, s=20)
+    ax1.set_xlabel('温差 (°C)')
+    ax1.set_ylabel('开路电压 (V)')
+    ax1.set_title('温差-电压特性')
+    ax1.grid(True, alpha=0.3)
+    plt.colorbar(scatter, ax=ax1, label='热端温度 (°C)')
+    
+    # 线性拟合
+    if len(df) > 5:
+        mask = np.abs(df['温差(°C)']) > 0.1
+        if mask.sum() > 5:
+            slope, intercept, r_value, p_value, std_err = stats.linregress(
+                df['温差(°C)'][mask], df['开路电压(V)'][mask]
+            )
+            
+            x_fit = np.linspace(df['温差(°C)'].min(), df['温差(°C)'].max(), 100)
+            y_fit = slope * x_fit + intercept
+            ax1.plot(x_fit, y_fit, 'r-', linewidth=2, 
+                    label=f'y={slope:.4f}x+{intercept:.4f}\nR²={r_value**2:.4f}')
+            ax1.legend()
+    
+    # 2. 温度时间序列
+    if '时间戳(ms)' in df.columns:
+        time_rel = (df['时间戳(ms)'] - df['时间戳(ms)'].iloc[0]) / 1000.0
+        ax2.plot(time_rel, df['热端温度(°C)'], 'r-', label='热端', linewidth=2)
+        ax2.plot(time_rel, df['冷端温度(°C)'], 'b-', label='冷端', linewidth=2)
+        ax2.fill_between(time_rel, df['冷端温度(°C)'], df['热端温度(°C)'], 
+                        alpha=0.2, color='purple', label='温差区域')
+        ax2.set_xlabel('时间 (秒)')
+        ax2.set_ylabel('温度 (°C)')
+        ax2.set_title('温度变化')
+        ax2.grid(True, alpha=0.3)
+        ax2.legend()
+    else:
+        ax2.plot(df.index, df['热端温度(°C)'], 'r-', label='热端', linewidth=2)
+        ax2.plot(df.index, df['冷端温度(°C)'], 'b-', label='冷端', linewidth=2)
+        ax2.set_xlabel('数据点')
+        ax2.set_ylabel('温度 (°C)')
+        ax2.set_title('温度变化')
+        ax2.grid(True, alpha=0.3)
+        ax2.legend()
+    
+    # 3. 电压时间序列
+    if '时间戳(ms)' in df.columns:
+        ax3.plot(time_rel, df['开路电压(V)'], 'g-', linewidth=2)
+        ax3.set_xlabel('时间 (秒)')
+    else:
+        ax3.plot(df.index, df['开路电压(V)'], 'g-', linewidth=2)
+        ax3.set_xlabel('数据点')
+    ax3.set_ylabel('开路电压 (V)')
+    ax3.set_title('电压变化')
+    ax3.grid(True, alpha=0.3)
+    
+    # 4. 功率时间序列
+    if '时间戳(ms)' in df.columns:
+        ax4.plot(time_rel, df['功率(mW)'], 'orange', linewidth=2)
+        ax4.set_xlabel('时间 (秒)')
+    else:
+        ax4.plot(df.index, df['功率(mW)'], 'orange', linewidth=2)
+        ax4.set_xlabel('数据点')
+    ax4.set_ylabel('功率 (mW)')
+    ax4.set_title('输出功率')
+    ax4.grid(True, alpha=0.3)
+    
+    # 5. 塞贝克系数分布
+    if '塞贝克系数(mV/°C)' in df.columns:
+        seebeck_filtered = df['塞贝克系数(mV/°C)'].dropna()
+        seebeck_filtered = seebeck_filtered[np.abs(seebeck_filtered) < 1000]
+        
+        ax5.hist(seebeck_filtered, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+        ax5.axvline(seebeck_filtered.mean(), color='red', linestyle='--', 
+                   linewidth=2, label=f'平均值: {seebeck_filtered.mean():.2f} mV/°C')
+        ax5.set_xlabel('塞贝克系数 (mV/°C)')
+        ax5.set_ylabel('频数')
+        ax5.set_title('塞贝克系数分布')
+        ax5.grid(True, alpha=0.3)
+        ax5.legend()
+    
+    # 6. 统计信息
+    ax6.axis('off')
+    
+    stats_text = "=== 数据统计 ===\n\n"
+    stats_text += f"数据点数: {len(df)}\n"
+    stats_text += f"热端温度: {df['热端温度(°C)'].min():.2f} - {df['热端温度(°C)'].max():.2f} °C\n"
+    stats_text += f"冷端温度: {df['冷端温度(°C)'].min():.2f} - {df['冷端温度(°C)'].max():.2f} °C\n"
+    stats_text += f"温差: {df['温差(°C)'].min():.2f} - {df['温差(°C)'].max():.2f} °C\n"
+    stats_text += f"平均温差: {df['温差(°C)'].mean():.2f} °C\n"
+    stats_text += f"开路电压: {df['开路电压(V)'].min():.4f} - {df['开路电压(V)'].max():.4f} V\n"
+    stats_text += f"平均电压: {df['开路电压(V)'].mean():.4f} V\n"
+    stats_text += f"最大功率: {df['功率(mW)'].max():.2f} mW\n"
+    
+    if '塞贝克系数(mV/°C)' in df.columns:
+        seebeck_mean = seebeck_filtered.mean() if len(seebeck_filtered) > 0 else 0
+        stats_text += f"平均塞贝克系数: {seebeck_mean:.2f} mV/°C\n"
+    
+    ax6.text(0.02, 0.98, stats_text, transform=ax6.transAxes, fontsize=10,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.8))
+    
+    # 调整布局
+    plt.tight_layout()
+    
+    # 显示图表
+    plt.show()
+
+
+def main():
+    """主函数"""
+    print("=" * 60)
+    print("TEG温差发电数据分析系统")
+    print("=" * 60)
+    print()
+    print("请选择模式:")
+    print("1. 实时监测模式")
+    print("2. 数据分析模式（处理已保存的数据）")
+    print("3. 退出")
+    print()
+    
+    try:
+        choice = input("请输入选项 (1-3): ").strip()
+        
+        if choice == '1':
+            run_simple_monitor()
+        elif choice == '2':
+            analyze_saved_data()
+        elif choice == '3':
+            print("退出程序")
+            return
+        else:
+            print("无效的选择")
+    
+    except KeyboardInterrupt:
+        print("\n程序被用户中断")
+    except Exception as e:
+        print(f"程序运行出错: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+if __name__ == "__main__":
+    # 创建必要的目录
+    if not os.path.exists("teg_data"):
+        os.makedirs("teg_data")
+    
+    # 运行主程序
+    main()
+    
+    # 程序结束时暂停
+    if sys.platform == 'win32':
+        input("\n按回车键退出...")
