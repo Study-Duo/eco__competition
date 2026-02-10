@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>仪表板 - TEG监测系统</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📈 TEG综合仪表板</h1>
+            <p class="subtitle">混合模式 - 数据汇总与性能分析</p>
+            <div class="header-actions">
+                <a href="index.html" class="btn btn-outline">
+                    <span class="btn-icon">←</span>
+                    <span class="btn-text">返回首页</span>
+                </a>
+                <button id="btnAutoRefresh" class="btn btn-success" onclick="toggleAutoRefresh()">
+                    <span class="btn-icon">🔄</span>
+                    <span class="btn-text">自动刷新</span>
+                </button>
+            </div>
+        </header>
+        
+        <!-- 导航菜单 -->
+        <nav>
+            <a href="index.html" class="nav-link">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-text">首页</span>
+            </a>
+            <a href="analysis.html" class="nav-link">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">数据分析</span>
+            </a>
+            <a href="realtime.html" class="nav-link">
+                <span class="nav-icon">📡</span>
+                <span class="nav-text">实时监测</span>
+            </a>
+            <a href="dashboard.html" class="nav-link active">
+                <span class="nav-icon">📈</span>
+                <span class="nav-text">仪表板</span>
+            </a>
+        </nav>
+        
+        <!-- 概要统计 -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">总数据点数</div>
+                <div class="stat-value" id="statTotalData">0</div>
+                <div class="stat-range" id="statDataRange">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">平均温差</div>
+                <div class="stat-value" id="statAvgTempDiff">0.00 °C</div>
+                <div class="stat-range" id="statTempRange">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">平均电压</div>
+                <div class="stat-value" id="statAvgVoltage">0.000 V</div>
+                <div class="stat-range" id="statVoltageRange">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">最大功率</div>
+                <div class="stat-value" id="statMaxPower">0.00 mW</div>
+                <div class="stat-range" id="statPowerRange">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">平均效率</div>
+                <div class="stat-value" id="statAvgEfficiency">0.00 %</div>
+                <div class="stat-range" id="statEfficiencyRange">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">塞贝克系数</div>
+                <div class="stat-value" id="statAvgSeebeck">0.00 mV/°C</div>
+                <div class="stat-range" id="statSeebeckRange">--</div>
+            </div>
+        </div>
+        
+        <!-- 主要图表区 -->
+        <div class="dashboard">
+            <!-- 性能趋势图 -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">📈 性能趋势</h2>
+                    <div class="card-actions">
+                        <select id="trendPeriod" class="form-control" onchange="updateTrendChart()">
+                            <option value="1h">1小时</option>
+                            <option value="6h">6小时</option>
+                            <option value="24h" selected>24小时</option>
+                            <option value="7d">7天</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="chart-container">
+                        <canvas id="performanceTrendChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 效率分布图 -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">📊 效率分布</h2>
+                    <div class="card-actions">
+                        <button class="btn btn-sm btn-outline" onclick="toggleChartType('efficiencyDistributionChart')">
+                            <span class="btn-icon">📊</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="chart-container">
+                        <canvas id="efficiencyDistributionChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 温差-功率特性 -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">⚡ 温差-功率特性</h2>
+                    <div class="card-actions">
+                        <button class="btn btn-sm btn-outline" onclick="toggleChartType('powerCharacteristicChart')">
+                            <span class="btn-icon">📊</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="chart-container">
+                        <canvas id="powerCharacteristicChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 实时状态监控 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">🔍 实时状态</h2>
+                    <div class="card-actions">
+                        <button class="btn btn-sm btn-primary" onclick="refreshStatus()">
+                            <span class="btn-icon">🔄</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="status-grid" id="statusGrid">
+                        <!-- 状态信息会动态显示在这里 -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 系统配置 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">⚙️ 系统配置</h2>
+                </div>
+                <div class="card-content">
+                    <div class="config-summary" id="configSummary">
+                        <!-- 配置信息会动态显示在这里 -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 数据文件管理 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">💾 数据文件</h2>
+                    <div class="card-actions">
+                        <button class="btn btn-sm btn-success" onclick="loadFileList()">
+                            <span class="btn-icon">🔄</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="file-summary" id="fileSummary">
+                        <!-- 文件信息会动态显示在这里 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 告警面板 -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">⚠️ 系统告警</h2>
+                <div class="card-actions">
+                    <button class="btn btn-sm btn-outline" onclick="clearAlerts()">
+                        <span class="btn-icon">🗑️</span>
+                        <span class="btn-text">清空</span>
+                    </button>
+                </div>
+            </div>
+            <div class="card-content">
+                <div class="alerts-container" id="alertsContainer">
+                    <div class="alert alert-info">
+                        <div class="alert-icon">ℹ️</div>
+                        <div class="alert-content">
+                            <div class="alert-title">系统正常</div>
+                            <div class="alert-message">所有组件运行正常</div>
+                        </div>
+                        <div class="alert-time">刚刚</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <div class="footer-content">
+                <div class="footer-info">
+                    <p>仪表板更新时间: <span id="dashboardUpdateTime">--:--:--</span></p>
+                    <p>数据源: <span id="dataSource">本地服务器</span></p>
+                </div>
+                <div class="footer-actions">
+                    <button class="btn btn-sm btn-outline" onclick="exportDashboard()">
+                        <span class="btn-icon">📤</span>
+                        <span class="btn-text">导出数据</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline" onclick="printDashboard()">
+                        <span class="btn-icon">🖨️</span>
+                        <span class="btn-text">打印</span>
+                    </button>
+                </div>
+            </div>
+        </footer>
+    </div>
+    
+    <!-- JavaScript代码 -->
+    <script>
+        // 全局变量
+        let dashboardCharts = {};
+        let autoRefreshInterval = null;
+        let autoRefreshEnabled = false;
+        let dashboardData = {
+            summary: {},
+            trends: [],
+            status: {},
+            config: {},
+            files: []
+        };
+        
+        // DOM加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化图表
+            initDashboardCharts();
+            
+            // 加载数据
+            loadDashboardData();
+            
+            // 开始自动刷新
+            startAutoRefresh();
+            
+            // 更新时间显示
+            updateTime();
+            setInterval(updateTime, 1000);
+        });
+        
+        // 初始化仪表板图表
+        function initDashboardCharts() {
+            // 性能趋势图
+            const trendCtx = document.getElementById('performanceTrendChart').getContext('2d');
+            dashboardCharts.performanceTrend = new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: '温差',
+                            data: [],
+                            borderColor: '#ff6384',
+                            backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: '功率',
+                            data: [],
+                            borderColor: '#4bc0c0',
+                            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '时间'
+                            }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: '温差 (°C)'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: {
+                                display: true,
+                                text: '功率 (mW)'
+                            },
+                            grid: {
+                                drawOnChartArea: false
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // 效率分布图
+            const effCtx = document.getElementById('efficiencyDistributionChart').getContext('2d');
+            dashboardCharts.efficiencyDistribution = new Chart(effCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: '效率分布',
+                        data: [],
+                        backgroundColor: 'rgba(153, 102, 255, 0.6)',
+                        borderColor: 'rgba(153, 102, 255, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '效率范围 (%)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '数据点数'
+                            },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+            
+            // 功率特性图
+            const powerCtx = document.getElementById('powerCharacteristicChart').getContext('2d');
+            dashboardCharts.powerCharacteristic = new Chart(powerCtx, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: '温差-功率特性',
+                        data: [],
+                        borderColor: '#ff9f40',
+                        backgroundColor: 'rgba(255, 159, 64, 0.5)',
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '温差 (°C)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '功率 (mW)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 加载仪表板数据
+        async function loadDashboardData() {
+            try {
+                // 加载汇总数据
+                await loadSummaryData();
+                
+                // 加载趋势数据
+                await loadTrendData();
+                
+                // 加载状态数据
+                await loadStatusData();
+                
+                // 加载配置数据
+                await loadConfigData();
+                
+                // 加载文件数据
+                await loadFileList();
+                
+                // 更新显示
+                updateDashboardDisplay();
+                
+            } catch (error) {
+                console.error('加载仪表板数据失败:', error);
+                showAlert('error', '加载数据失败: ' + error.message);
+            }
+        }
+        
+        // 加载汇总数据
+        async function loadSummaryData() {
+            try {
+                const response = await fetch('/api/statistics');
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    dashboardData.summary = data;
+                }
+            } catch (error) {
+                console.error('加载汇总数据失败:', error);
+            }
+        }
+        
+        // 加载趋势数据
+        async function loadTrendData() {
+            try {
+                const response = await fetch('/api/data/all');
+                const data = await response.json();
+                
+                if (Array.isArray(data)) {
+                    dashboardData.trends = data;
+                }
+            } catch (error) {
+                console.error('加载趋势数据失败:', error);
+            }
+        }
+        
+        // 加载状态数据
+        async function loadStatusData() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                dashboardData.status = data;
+            } catch (error) {
+                console.error('加载状态数据失败:', error);
+            }
+        }
+        
+        // 加载配置数据
+        async function loadConfigData() {
+            try {
+                const response = await fetch('/api/config');
+                const data = await response.json();
+                
+                dashboardData.config = data;
+            } catch (error) {
+                console.error('加载配置数据失败:', error);
+            }
+        }
+        
+        // 加载文件列表
+        async function loadFileList() {
+            try {
+                const response = await fetch('/api/saved_files');
+                const files = await response.json();
+                
+                dashboardData.files = files;
+                updateFileSummary(files);
+            } catch (error) {
+                console.error('加载文件列表失败:', error);
+            }
+        }
+        
+        // 更新仪表板显示
+        function updateDashboardDisplay() {
+            // 更新概要统计
+            updateSummaryStats();
+            
+            // 更新图表
+            updateCharts();
+            
+            // 更新状态显示
+            updateStatusDisplay();
+            
+            // 更新配置显示
+            updateConfigDisplay();
+            
+            // 更新时间
+            updateDashboardTime();
+        }
+        
+        // 更新概要统计
+        function updateSummaryStats() {
+            const summary = dashboardData.summary;
+            
+            if (summary.data_points) {
+                document.getElementById('statTotalData').textContent = summary.data_points;
+                
+                // 计算数据范围
+                if (dashboardData.trends.length > 0) {
+                    const first = dashboardData.trends[0];
+                    const last = dashboardData.trends[dashboardData.trends.length - 1];
+                    const duration = (last.timestamp - first.timestamp) / 1000;
+                    document.getElementById('statDataRange').textContent = 
+                        `${duration.toFixed(1)} 秒`;
+                }
+            }
+            
+            if (summary.temp_diff) {
+                document.getElementById('statAvgTempDiff').textContent = 
+                    `${summary.temp_diff.mean.toFixed(2)} °C`;
+                document.getElementById('statTempRange').textContent = 
+                    `${summary.temp_diff.min.toFixed(1)} - ${summary.temp_diff.max.toFixed(1)} °C`;
+            }
+            
+            if (summary.voltage) {
+                document.getElementById('statAvgVoltage').textContent = 
+                    `${summary.voltage.mean.toFixed(3)} V`;
+                document.getElementById('statVoltageRange').textContent = 
+                    `${summary.voltage.min.toFixed(3)} - ${summary.voltage.max.toFixed(3)} V`;
+            }
+            
+            if (summary.power) {
+                document.getElementById('statMaxPower').textContent = 
+                    `${summary.power.max.toFixed(2)} mW`;
+                document.getElementById('statPowerRange').textContent = 
+                    `${summary.power.mean.toFixed(2)} mW (平均)`;
+            }
+            
+            if (summary.seebeck) {
+                document.getElementById('statAvgSeebeck').textContent = 
+                    `${summary.seebeck.mean.toFixed(2)} mV/°C`;
+            }
+        }
+        
+        // 更新图表
+        function updateCharts() {
+            updateTrendChart();
+            updateEfficiencyDistribution();
+            updatePowerCharacteristic();
+        }
+        
+        // 更新趋势图表
+        function updateTrendChart() {
+            const period = document.getElementById('trendPeriod').value;
+            let filteredData = dashboardData.trends;
+            
+            // 根据时间段过滤数据
+            if (period === '1h') {
+                const oneHourAgo = Date.now() - 60 * 60 * 1000;
+                filteredData = dashboardData.trends.filter(d => d.timestamp >= oneHourAgo);
+            } else if (period === '6h') {
+                const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
+                filteredData = dashboardData.trends.filter(d => d.timestamp >= sixHoursAgo);
+            } else if (period === '24h') {
+                const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+                filteredData = dashboardData.trends.filter(d => d.timestamp >= oneDayAgo);
+            } else if (period === '7d') {
+                const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+                filteredData = dashboardData.trends.filter(d => d.timestamp >= sevenDaysAgo);
+            }
+            
+            if (filteredData.length === 0) return;
+            
+            // 准备图表数据
+            const labels = filteredData.map(d => 
+                new Date(d.timestamp).toLocaleTimeString()
+            );
+            
+            const tempData = filteredData.map(d => d.temp_diff);
+            const powerData = filteredData.map(d => d.power);
+            
+            // 更新图表
+            dashboardCharts.performanceTrend.data.labels = labels;
+            dashboardCharts.performanceTrend.data.datasets[0].data = tempData;
+            dashboardCharts.performanceTrend.data.datasets[1].data = powerData;
+            dashboardCharts.performanceTrend.update();
+        }
+        
+        // 更新效率分布
+        function updateEfficiencyDistribution() {
+            const efficiencies = dashboardData.trends
+                .map(d => d.efficiency)
+                .filter(e => e >= 0 && e <= 100);
+            
+            if (efficiencies.length === 0) return;
+            
+            // 计算直方图
+            const bins = [0, 1, 2, 5, 10, 20, 50, 100];
+            const counts = new Array(bins.length - 1).fill(0);
+            const labels = [];
+            
+            efficiencies.forEach(efficiency => {
+                for (let i = 0; i < bins.length - 1; i++) {
+                    if (efficiency >= bins[i] && efficiency < bins[i + 1]) {
+                        counts[i]++;
+                        break;
+                    }
+                }
+            });
+            
+            // 创建标签
+            for (let i = 0; i < bins.length - 1; i++) {
+                labels.push(`${bins[i]}-${bins[i + 1]}%`);
+            }
+            
+            // 更新图表
+            dashboardCharts.efficiencyDistribution.data.labels = labels;
+            dashboardCharts.efficiencyDistribution.data.datasets[0].data = counts;
+            dashboardCharts.efficiencyDistribution.update();
+        }
+        
+        // 更新功率特性
+        function updatePowerCharacteristic() {
+            const data = dashboardData.trends.map(d => ({
+                x: d.temp_diff,
+                y: d.power
+            }));
+            
+            dashboardCharts.powerCharacteristic.data.datasets[0].data = data;
+            dashboardCharts.powerCharacteristic.update();
+        }
+        
+        // 更新状态显示
+        function updateStatusDisplay() {
+            const status = dashboardData.status;
+            const container = document.getElementById('statusGrid');
+            
+            let html = `
+                <div class="status-item">
+                    <div class="status-label">服务器状态</div>
+                    <div class="status-value status-online">运行中</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">运行时间</div>
+                    <div class="status-value">${formatUptime(status.timestamp || Date.now())}</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">数据点数</div>
+                    <div class="status-value">${dashboardData.trends.length}</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">最后更新</div>
+                    <div class="status-value">${new Date().toLocaleTimeString()}</div>
+                </div>
+            `;
+            
+            container.innerHTML = html;
+        }
+        
+        // 更新配置显示
+        function updateConfigDisplay() {
+            const config = dashboardData.config;
+            const container = document.getElementById('configSummary');
+            
+            let html = `
+                <div class="config-item">
+                    <div class="config-label">负载电阻</div>
+                    <div class="config-value">${config.load_resistance || 10.0} Ω</div>
+                </div>
+                <div class="config-item">
+                    <div class="config-label">TEG内阻</div>
+                    <div class="config-value">${config.teg_resistance || 4.0} Ω</div>
+                </div>
+                <div class="config-item">
+                    <div class="config-label">塞贝克系数</div>
+                    <div class="config-value">${config.seebeck_coefficient || 40.0} mV/°C</div>
+                </div>
+                <div class="config-item">
+                    <div class="config-label">串口端口</div>
+                    <div class="config-value">${config.port || '自动检测'}</div>
+                </div>
+                <div class="config-item">
+                    <div class="config-label">波特率</div>
+                    <div class="config-value">${config.baudrate || 115200}</div>
+                </div>
+            `;
+            
+            container.innerHTML = html;
+        }
+        
+        // 更新文件摘要
+        function updateFileSummary(files) {
+            const container = document.getElementById('fileSummary');
+            
+            if (files.length === 0) {
+                container.innerHTML = '<p class="text-secondary">暂无数据文件</p>';
+                return;
+            }
+            
+            // 计算总大小
+            const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+            const newestFile = files.reduce((newest, file) => 
+                file.modified > newest.modified ? file : newest, files[0]
+            );
+            
+            let html = `
+                <div class="file-summary-stats">
+                    <div class="file-stat">
+                        <div class="file-stat-label">文件数量</div>
+                        <div class="file-stat-value">${files.length}</div>
+                    </div>
+                    <div class="file-stat">
+                        <div class="file-stat-label">总大小</div>
+                        <div class="file-stat-value">${formatFileSize(totalSize)}</div>
+                    </div>
+                    <div class="file-stat">
+                        <div class="file-stat-label">最新文件</div>
+                        <div class="file-stat-value">${newestFile.name}</div>
+                    </div>
+                </div>
+                <div class="recent-files">
+                    <h4>最近文件</h4>
+                    <ul>
+            `;
+            
+            // 显示最近5个文件
+            files
+                .sort((a, b) => b.modified - a.modified)
+                .slice(0, 5)
+                .forEach(file => {
+                    html += `
+                        <li>
+                            <span class="file-name">${file.name}</span>
+                            <span class="file-size">${formatFileSize(file.size)}</span>
+                            <span class="file-modified">${new Date(file.modified * 1000).toLocaleDateString()}</span>
+                        </li>
+                    `;
+                });
+            
+            html += `
+                    </ul>
+                </div>
+            `;
+            
+            container.innerHTML = html;
+        }
+        
+        // 切换图表类型
+        function toggleChartType(chartId) {
+            const chart = dashboardCharts[chartId];
+            const types = ['bar', 'line', 'scatter'];
+            const currentType = chart.config.type;
+            const nextType = types[(types.indexOf(currentType) + 1) % types.length];
+            
+            chart.config.type = nextType;
+            chart.update();
+        }
+        
+        // 刷新状态
+        function refreshStatus() {
+            loadDashboardData();
+            showAlert('info', '仪表板数据已刷新');
+        }
+        
+        // 切换自动刷新
+        function toggleAutoRefresh() {
+            autoRefreshEnabled = !autoRefreshEnabled;
+            const button = document.getElementById('btnAutoRefresh');
+            
+            if (autoRefreshEnabled) {
+                startAutoRefresh();
+                button.classList.remove('btn-success');
+                button.classList.add('btn-warning');
+                button.innerHTML = '<span class="btn-icon">⏸️</span><span class="btn-text">暂停刷新</span>';
+                showAlert('info', '已启用自动刷新（每30秒）');
+            } else {
+                stopAutoRefresh();
+                button.classList.remove('btn-warning');
+                button.classList.add('btn-success');
+                button.innerHTML = '<span class="btn-icon">🔄</span><span class="btn-text">自动刷新</span>';
+                showAlert('info', '已禁用自动刷新');
+            }
+        }
+        
+        // 开始自动刷新
+        function startAutoRefresh() {
+            stopAutoRefresh(); // 先停止现有的
+            autoRefreshInterval = setInterval(loadDashboardData, 30000); // 每30秒
+        }
+        
+        // 停止自动刷新
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+        }
+        
+        // 清空告警
+        function clearAlerts() {
+            const container = document.getElementById('alertsContainer');
+            container.innerHTML = `
+                <div class="alert alert-info">
+                    <div class="alert-icon">ℹ️</div>
+                    <div class="alert-content">
+                        <div class="alert-title">告警已清空</div>
+                        <div class="alert-message">所有告警信息已清除</div>
+                    </div>
+                    <div class="alert-time">刚刚</div>
+                </div>
+            `;
+        }
+        
+        // 显示告警
+        function showAlert(type, message) {
+            const container = document.getElementById('alertsContainer');
+            const types = {
+                info: { icon: 'ℹ️', title: '信息' },
+                warning: { icon: '⚠️', title: '警告' },
+                error: { icon: '❌', title: '错误' },
+                success: { icon: '✅', title: '成功' }
+            };
+            
+            const alertType = types[type] || types.info;
+            
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.innerHTML = `
+                <div class="alert-icon">${alertType.icon}</div>
+                <div class="alert-content">
+                    <div class="alert-title">${alertType.title}</div>
+                    <div class="alert-message">${message}</div>
+                </div>
+                <div class="alert-time">刚刚</div>
+            `;
+            
+            container.insertBefore(alert, container.firstChild);
+            
+            // 限制告警数量
+            if (container.children.length > 10) {
+                container.removeChild(container.lastChild);
+            }
+        }
+        
+        // 导出仪表板数据
+        function exportDashboard() {
+            const data = {
+                summary: dashboardData.summary,
+                config: dashboardData.config,
+                timestamp: Date.now()
+            };
+            
+            const jsonStr = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `teg_dashboard_${Date.now()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showAlert('success', '仪表板数据已导出');
+        }
+        
+        // 打印仪表板
+        function printDashboard() {
+            window.print();
+        }
+        
+        // 格式化运行时间
+        function formatUptime(timestamp) {
+            const uptime = Math.floor((Date.now() - timestamp) / 1000);
+            
+            if (uptime < 60) {
+                return `${uptime}秒`;
+            } else if (uptime < 3600) {
+                return `${Math.floor(uptime / 60)}分钟`;
+            } else if (uptime < 86400) {
+                return `${Math.floor(uptime / 3600)}小时`;
+            } else {
+                return `${Math.floor(uptime / 86400)}天`;
+            }
+        }
+        
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        // 更新时间显示
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('dashboardUpdateTime').textContent = 
+                now.toLocaleTimeString('zh-CN');
+        }
+        
+        function updateDashboardTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('zh-CN', { 
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            document.getElementById('dashboardUpdateTime').textContent = timeStr;
+        }
+        
+        // 页面卸载前清理
+        window.addEventListener('beforeunload', function() {
+            stopAutoRefresh();
+        });
+    </script>
+    
+    <style>
+        /* 仪表板特定样式 */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: var(--spacing-md);
+        }
+        
+        .status-item {
+            padding: var(--spacing-md);
+            background-color: var(--bg-secondary);
+            border-radius: var(--border-radius);
+            border-left: 4px solid var(--primary-color);
+        }
+        
+        .config-summary {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-md);
+        }
+        
+        .config-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacing-sm) var(--spacing-md);
+            background-color: var(--bg-secondary);
+            border-radius: var(--border-radius-sm);
+        }
+        
+        .config-label {
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+        
+        .config-value {
+            font-weight: 600;
+            color: var(--text-primary);
+            font-family: monospace;
+        }
+        
+        .file-summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: var(--spacing-md);
+            margin-bottom: var(--spacing-lg);
+        }
+        
+        .file-stat {
+            text-align: center;
+            padding: var(--spacing-md);
+            background-color: var(--bg-secondary);
+            border-radius: var(--border-radius);
+        }
+        
+        .file-stat-label {
+            font-size: var(--font-size-sm);
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-xs);
+        }
+        
+        .file-stat-value {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .recent-files ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .recent-files li {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacing-sm) var(--spacing-md);
+            margin-bottom: var(--spacing-xs);
+            background-color: var(--bg-secondary);
+            border-radius: var(--border-radius-sm);
+            font-size: var(--font-size-sm);
+        }
+        
+        .recent-files li:hover {
+            background-color: var(--bg-primary);
+        }
+        
+        .alerts-container {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-md);
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .alert {
+            display: flex;
+            align-items: flex-start;
+            gap: var(--spacing-md);
+            padding: var(--spacing-md);
+            border-radius: var(--border-radius);
+            border-left: 4px solid;
+        }
+        
+        .alert-info {
+            background-color: rgba(52, 152, 219, 0.1);
+            border-left-color: var(--info-color);
+        }
+        
+        .alert-warning {
+            background-color: rgba(243, 156, 18, 0.1);
+            border-left-color: var(--warning-color);
+        }
+        
+        .alert-error {
+            background-color: rgba(231, 76, 60, 0.1);
+            border-left-color: var(--danger-color);
+        }
+        
+        .alert-success {
+            background-color: rgba(46, 204, 113, 0.1);
+            border-left-color: var(--success-color);
+        }
+        
+        .alert-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+        
+        .alert-content {
+            flex: 1;
+        }
+        
+        .alert-title {
+            font-weight: 600;
+            margin-bottom: var(--spacing-xs);
+        }
+        
+        .alert-message {
+            color: var(--text-secondary);
+            font-size: var(--font-size-sm);
+        }
+        
+        .alert-time {
+            font-size: var(--font-size-xs);
+            color: var(--text-secondary);
+            flex-shrink: 0;
+        }
+    </style>
+</body>
+</html>

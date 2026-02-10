@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时监测 - TEG监测系统</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📡 TEG实时监测系统</h1>
+            <p class="subtitle">混合模式 - 实时数据采集与可视化</p>
+            <div class="header-actions">
+                <a href="index.html" class="btn btn-outline">
+                    <span class="btn-icon">←</span>
+                    <span class="btn-text">返回首页</span>
+                </a>
+                <button id="btnFullscreen" class="btn btn-secondary" onclick="toggleFullscreen()">
+                    <span class="btn-icon">📺</span>
+                    <span class="btn-text">全屏</span>
+                </button>
+            </div>
+        </header>
+        
+        <!-- 导航菜单 -->
+        <nav>
+            <a href="index.html" class="nav-link">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-text">首页</span>
+            </a>
+            <a href="analysis.html" class="nav-link">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">数据分析</span>
+            </a>
+            <a href="realtime.html" class="nav-link active">
+                <span class="nav-icon">📡</span>
+                <span class="nav-text">实时监测</span>
+            </a>
+            <a href="dashboard.html" class="nav-link">
+                <span class="nav-icon">📈</span>
+                <span class="nav-text">仪表板</span>
+            </a>
+        </nav>
+        
+        <!-- 控制面板 -->
+        <div class="control-panel">
+            <div class="card">
+                <h2 class="card-title">⚙️ 控制面板</h2>
+                <div class="card-content">
+                    <div class="control-section">
+                        <h3>串口连接</h3>
+                        <div class="control-group">
+                            <label for="portSelect">端口:</label>
+                            <select id="portSelect" class="form-control">
+                                <option value="">自动检测</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label for="baudrateSelect">波特率:</label>
+                            <select id="baudrateSelect" class="form-control">
+                                <option value="9600">9600</option>
+                                <option value="115200" selected>115200</option>
+                                <option value="230400">230400</option>
+                            </select>
+                        </div>
+                        <div class="btn-group">
+                            <button id="btnConnect" class="btn btn-primary" onclick="connectSerial()">
+                                <span class="btn-icon">🔌</span>
+                                <span class="btn-text">连接</span>
+                            </button>
+                            <button id="btnDisconnect" class="btn btn-danger" onclick="disconnectSerial()" disabled>
+                                <span class="btn-icon">🔌</span>
+                                <span class="btn-text">断开</span>
+                            </button>
+                            <button id="btnRefreshPorts" class="btn btn-secondary" onclick="refreshPorts()">
+                                <span class="btn-icon">🔄</span>
+                                <span class="btn-text">刷新</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="control-section">
+                        <h3>数据采集</h3>
+                        <div class="btn-group">
+                            <button id="btnStart" class="btn btn-success" onclick="startAcquisition()" disabled>
+                                <span class="btn-icon">▶️</span>
+                                <span class="btn-text">开始</span>
+                            </button>
+                            <button id="btnStop" class="btn btn-danger" onclick="stopAcquisition()" disabled>
+                                <span class="btn-icon">⏹️</span>
+                                <span class="btn-text">停止</span>
+                            </button>
+                            <button id="btnClear" class="btn btn-warning" onclick="clearData()">
+                                <span class="btn-icon">🗑️</span>
+                                <span class="btn-text">清空</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="control-section">
+                        <h3>数据记录</h3>
+                        <div class="btn-group">
+                            <button id="btnStartLogging" class="btn btn-info" onclick="startLogging()" disabled>
+                                <span class="btn-icon">💾</span>
+                                <span class="btn-text">记录</span>
+                            </button>
+                            <button id="btnStopLogging" class="btn btn-secondary" onclick="stopLogging()" disabled>
+                                <span class="btn-icon">⏸️</span>
+                                <span class="btn-text">暂停</span>
+                            </button>
+                            <button id="btnExportData" class="btn btn-outline" onclick="exportData()" disabled>
+                                <span class="btn-icon">📤</span>
+                                <span class="btn-text">导出</span>
+                            </button>
+                        </div>
+                        <div class="file-info">
+                            <span class="file-label">当前文件:</span>
+                            <span id="currentFileName" class="file-name">未记录</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2 class="card-title">📊 实时统计</h2>
+                <div class="card-content">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">数据点数</div>
+                            <div class="stat-value" id="statDataPoints">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">采样率</div>
+                            <div class="stat-value" id="statSampleRate">0.0 Hz</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">运行时间</div>
+                            <div class="stat-value" id="statUptime">00:00:00</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">错误数</div>
+                            <div class="stat-value" id="statErrors">0</div>
+                        </div>
+                    </div>
+                    
+                    <div class="status-indicator">
+                        <div class="status-label">连接状态:</div>
+                        <div class="status-indicators">
+                            <div class="indicator-item">
+                                <div class="indicator-dot" id="indicatorServer"></div>
+                                <span class="indicator-label">服务器</span>
+                            </div>
+                            <div class="indicator-item">
+                                <div class="indicator-dot" id="indicatorSerial"></div>
+                                <span class="indicator-label">串口</span>
+                            </div>
+                            <div class="indicator-item">
+                                <div class="indicator-dot" id="indicatorAcquisition"></div>
+                                <span class="indicator-label">采集</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 实时数据仪表板 -->
+        <div class="dashboard">
+            <!-- 温度监控 -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">🌡️ 温度监控</h2>
+                    <div class="card-actions">
+                        <button class="btn btn-sm btn-outline" onclick="toggleChart('tempChart')">
+                            <span class="btn-icon">📊</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="chart-container">
+                        <canvas id="tempChart"></canvas>
+                    </div>
+                    <div class="metric-row">
+                        <div class="metric">
+                            <div class="metric-label">热端温度</div>
+                            <div class="metric-value" id="metricHotTemp">--.-- °C</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">冷端温度</div>
+                            <div class="metric-value" id="metricColdTemp">--.-- °C</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">温差</div>
+                            <div class="metric-value" id="metricTempDiff">--.-- °C</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 电压监控 -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">⚡ 电压监控</h2>
+                    <div class="card-actions">
+                        <button class="btn btn-sm btn-outline" onclick="toggleChart('voltageChart')">
+                            <span class="btn-icon">📊</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="chart-container">
+                        <canvas id="voltageChart"></canvas>
+                    </div>
+                    <div class="metric-row">
+                        <div class="metric">
+                            <div class="metric-label">开路电压</div>
+                            <div class="metric-value" id="metricVoltage">--.-- V</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">原始电压</div>
+                            <div class="metric-value" id="metricVoltageRaw">--.-- mV</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">电流</div>
+                            <div class="metric-value" id="metricCurrent">--.-- mA</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 功率监控 -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">💡 功率监控</h2>
+                    <div class="card-actions">
+                        <button class="btn btn-sm btn-outline" onclick="toggleChart('powerChart')">
+                            <span class="btn-icon">📊</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="chart-container">
+                        <canvas id="powerChart"></canvas>
+                    </div>
+                    <div class="metric-row">
+                        <div class="metric">
+                            <div class="metric-label">输出功率</div>
+                            <div class="metric-value" id="metricPower">--.-- mW</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">最大功率</div>
+                            <div class="metric-value" id="metricMaxPower">--.-- mW</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">平均功率</div>
+                            <div class="metric-value" id="metricAvgPower">--.-- mW</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 特性曲线 -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <h2 class="card-title">📈 特性曲线</h2>
+                    <div class="card-actions">
+                        <button class="btn btn-sm btn-outline" onclick="toggleChart('characteristicChart')">
+                            <span class="btn-icon">📊</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="chart-container">
+                        <canvas id="characteristicChart"></canvas>
+                    </div>
+                    <div class="metric-row">
+                        <div class="metric">
+                            <div class="metric-label">塞贝克系数</div>
+                            <div class="metric-value" id="metricSeebeck">--.-- mV/°C</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">转换效率</div>
+                            <div class="metric-value" id="metricEfficiency">--.-- %</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">R²拟合度</div>
+                            <div class="metric-value" id="metricRSquared">--.--</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 原始数据 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">📋 原始数据</h2>
+                    <div class="card-actions">
+                        <button class="btn btn-sm btn-outline" onclick="toggleRawData()">
+                            <span class="btn-icon">📄</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-content">
+                    <div class="raw-data-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>热端(°C)</th>
+                                    <th>冷端(°C)</th>
+                                    <th>电压(V)</th>
+                                    <th>功率(mW)</th>
+                                    <th>塞贝克(mV/°C)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rawDataTable">
+                                <tr>
+                                    <td colspan="6" class="text-center">等待数据...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 配置面板 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">🔧 配置面板</h2>
+                </div>
+                <div class="card-content">
+                    <div class="config-form">
+                        <div class="form-group">
+                            <label for="configLoadResistance">负载电阻 (Ω):</label>
+                            <input type="number" id="configLoadResistance" value="10.0" step="0.1" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="configTegResistance">TEG内阻 (Ω):</label>
+                            <input type="number" id="configTegResistance" value="4.0" step="0.1" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="configSeebeckCoeff">塞贝克系数 (mV/°C):</label>
+                            <input type="number" id="configSeebeckCoeff" value="40.0" step="0.1" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="configSampleRate">采样率 (Hz):</label>
+                            <select id="configSampleRate" class="form-control">
+                                <option value="1">1 Hz</option>
+                                <option value="2" selected>2 Hz</option>
+                                <option value="5">5 Hz</option>
+                                <option value="10">10 Hz</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" onclick="updateConfig()">
+                            <span class="btn-icon">💾</span>
+                            <span class="btn-text">保存配置</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <div class="footer-content">
+                <div class="footer-info">
+                    <p>数据更新时间: <span id="dataUpdateTime">--:--:--</span></p>
+                    <p>服务器: <span id="serverInfo">未连接</span></p>
+                </div>
+                <div class="footer-actions">
+                    <button class="btn btn-sm btn-outline" onclick="showSystemInfo()">
+                        <span class="btn-icon">ℹ️</span>
+                        <span class="btn-text">系统信息</span>
+                    </button>
+                </div>
+            </div>
+        </footer>
+    </div>
+    
+    <!-- JavaScript代码 -->
+    <script>
+        // 全局变量
+        let socket = null;
+        let charts = {};
+        let dataBuffer = [];
+        let maxDataPoints = 100;
+        let startTime = null;
+        let isAcquisitionRunning = false;
+        let isLogging = false;
+        let updateInterval = null;
+        
+        // DOM加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化图表
+            initCharts();
+            
+            // 连接WebSocket服务器
+            connectWebSocket();
+            
+            // 获取可用串口
+            refreshPorts();
+            
+            // 更新时间显示
+            updateTime();
+            setInterval(updateTime, 1000);
+            
+            // 开始数据更新循环
+            startUpdateLoop();
+        });
+        
+        // 初始化图表
+        function initCharts() {
+            // 温度图表
+            const tempCtx = document.getElementById('tempChart').getContext('2d');
+            charts.tempChart = new Chart(tempCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: '热端温度',
+                            data: [],
+                            borderColor: '#ff6384',
+                            backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: '冷端温度',
+                            data: [],
+                            borderColor: '#36a2eb',
+                            backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '时间 (s)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '温度 (°C)'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // 电压图表
+            const voltageCtx = document.getElementById('voltageChart').getContext('2d');
+            charts.voltageChart = new Chart(voltageCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: '开路电压',
+                            data: [],
+                            borderColor: '#4bc0c0',
+                            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '时间 (s)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '电压 (V)'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // 功率图表
+            const powerCtx = document.getElementById('powerChart').getContext('2d');
+            charts.powerChart = new Chart(powerCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: '输出功率',
+                            data: [],
+                            borderColor: '#ff9f40',
+                            backgroundColor: 'rgba(255, 159, 64, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '时间 (s)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '功率 (mW)'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // 特性曲线图表
+            const charCtx = document.getElementById('characteristicChart').getContext('2d');
+            charts.characteristicChart = new Chart(charCtx, {
+                type: 'scatter',
+                data: {
+                    datasets: [
+                        {
+                            label: '温差-电压特性',
+                            data: [],
+                            borderColor: '#9966ff',
+                            backgroundColor: 'rgba(153, 102, 255, 0.5)',
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '温差 (°C)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '电压 (V)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 连接WebSocket服务器
+        function connectWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}`;
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function() {
+                console.log('WebSocket连接成功');
+                updateIndicator('indicatorServer', 'online');
+                updateServerInfo('已连接');
+                
+                // 请求最新数据
+                socket.send(JSON.stringify({
+                    type: 'request_data',
+                    n_points: 50
+                }));
+            };
+            
+            socket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (error) {
+                    console.error('消息解析错误:', error);
+                }
+            };
+            
+            socket.onerror = function(error) {
+                console.error('WebSocket错误:', error);
+                updateIndicator('indicatorServer', 'error');
+                updateServerInfo('连接错误');
+            };
+            
+            socket.onclose = function() {
+                console.log('WebSocket连接关闭');
+                updateIndicator('indicatorServer', 'offline');
+                updateServerInfo('未连接');
+                
+                // 5秒后尝试重连
+                setTimeout(connectWebSocket, 5000);
+            };
+        }
+        
+        // 处理WebSocket消息
+        function handleWebSocketMessage(data) {
+            if (data.type === 'new_data') {
+                // 新数据
+                processNewData(data.data);
+            } else if (data.type === 'status_update') {
+                // 状态更新
+                updateStatus(data.status);
+            } else if (data.type === 'data_response') {
+                // 数据响应
+                if (data.data && data.data.length > 0) {
+                    data.data.forEach(processNewData);
+                }
+            } else if (data.type === 'acquisition_status') {
+                // 采集状态
+                updateAcquisitionStatus(data.status);
+            } else if (data.type === 'recording_status') {
+                // 记录状态
+                updateRecordingStatus(data.status);
+            } else if (data.type === 'connected') {
+                // 连接成功
+                console.log('WebSocket连接已确认');
+            }
+        }
+        
+        // 处理新数据
+        function processNewData(data) {
+            // 添加到数据缓冲区
+            dataBuffer.push(data);
+            
+            if (dataBuffer.length > maxDataPoints) {
+                dataBuffer.shift();
+            }
+            
+            // 更新统计数据
+            updateStats();
+            
+            // 更新显示
+            updateDisplay(data);
+            
+            // 更新图表
+            updateCharts(data);
+            
+            // 更新数据表格
+            updateDataTable(data);
+            
+            // 更新时间
+            updateDataTime();
+        }
+        
+        // 更新统计数据
+        function updateStats() {
+            document.getElementById('statDataPoints').textContent = dataBuffer.length;
+            
+            // 计算采样率
+            if (dataBuffer.length > 1) {
+                const timeDiff = (dataBuffer[dataBuffer.length-1].timestamp - dataBuffer[0].timestamp) / 1000;
+                const sampleRate = dataBuffer.length / Math.max(1, timeDiff);
+                document.getElementById('statSampleRate').textContent = sampleRate.toFixed(1) + ' Hz';
+            }
+            
+            // 更新运行时间
+            if (startTime) {
+                const uptime = Math.floor((Date.now() - startTime) / 1000);
+                const hours = Math.floor(uptime / 3600);
+                const minutes = Math.floor((uptime % 3600) / 60);
+                const seconds = uptime % 60;
+                document.getElementById('statUptime').textContent = 
+                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }
+        }
+        
+        // 更新显示
+        function updateDisplay(data) {
+            // 温度
+            document.getElementById('metricHotTemp').textContent = data.hot_temp.toFixed(2) + ' °C';
+            document.getElementById('metricColdTemp').textContent = data.cold_temp.toFixed(2) + ' °C';
+            document.getElementById('metricTempDiff').textContent = data.temp_diff.toFixed(2) + ' °C';
+            
+            // 电压
+            document.getElementById('metricVoltage').textContent = data.voltage.toFixed(3) + ' V';
+            document.getElementById('metricVoltageRaw').textContent = data.voltage_raw.toFixed(1) + ' mV';
+            document.getElementById('metricCurrent').textContent = data.current.toFixed(1) + ' mA';
+            
+            // 功率
+            document.getElementById('metricPower').textContent = data.power.toFixed(2) + ' mW';
+            
+            // 特性
+            document.getElementById('metricSeebeck').textContent = data.seebeck.toFixed(2) + ' mV/°C';
+            document.getElementById('metricEfficiency').textContent = data.efficiency.toFixed(2) + ' %';
+            
+            // 计算最大功率
+            if (dataBuffer.length > 0) {
+                const maxPower = Math.max(...dataBuffer.map(d => d.power));
+                const avgPower = dataBuffer.reduce((sum, d) => sum + d.power, 0) / dataBuffer.length;
+                
+                document.getElementById('metricMaxPower').textContent = maxPower.toFixed(2) + ' mW';
+                document.getElementById('metricAvgPower').textContent = avgPower.toFixed(2) + ' mW';
+            }
+        }
+        
+        // 更新图表
+        function updateCharts(data) {
+            // 计算相对时间
+            const timeRel = dataBuffer.map(d => (d.timestamp - dataBuffer[0].timestamp) / 1000);
+            
+            // 更新温度图表
+            charts.tempChart.data.labels = timeRel;
+            charts.tempChart.data.datasets[0].data = dataBuffer.map(d => d.hot_temp);
+            charts.tempChart.data.datasets[1].data = dataBuffer.map(d => d.cold_temp);
+            charts.tempChart.update('none');
+            
+            // 更新电压图表
+            charts.voltageChart.data.labels = timeRel;
+            charts.voltageChart.data.datasets[0].data = dataBuffer.map(d => d.voltage);
+            charts.voltageChart.update('none');
+            
+            // 更新功率图表
+            charts.powerChart.data.labels = timeRel;
+            charts.powerChart.data.datasets[0].data = dataBuffer.map(d => d.power);
+            charts.powerChart.update('none');
+            
+            // 更新特性曲线
+            charts.characteristicChart.data.datasets[0].data = dataBuffer.map(d => ({
+                x: d.temp_diff,
+                y: d.voltage
+            }));
+            charts.characteristicChart.update('none');
+        }
+        
+        // 更新数据表格
+        function updateDataTable(data) {
+            const table = document.getElementById('rawDataTable');
+            
+            // 创建新行
+            const time = new Date(data.timestamp).toLocaleTimeString();
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${time}</td>
+                <td>${data.hot_temp.toFixed(2)}</td>
+                <td>${data.cold_temp.toFixed(2)}</td>
+                <td>${data.voltage.toFixed(3)}</td>
+                <td>${data.power.toFixed(2)}</td>
+                <td>${data.seebeck.toFixed(2)}</td>
+            `;
+            
+            // 添加到表格开头
+            table.insertBefore(row, table.firstChild);
+            
+            // 限制行数
+            if (table.children.length > 10) {
+                table.removeChild(table.lastChild);
+            }
+        }
+        
+        // 更新时间显示
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('zh-CN');
+            document.getElementById('dataUpdateTime').textContent = timeStr;
+        }
+        
+        function updateDataTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('zh-CN', { 
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            document.getElementById('dataUpdateTime').textContent = timeStr;
+        }
+        
+        // 更新指示器
+        function updateIndicator(elementId, status) {
+            const element = document.getElementById(elementId);
+            element.className = 'indicator-dot';
+            
+            switch (status) {
+                case 'online':
+                    element.classList.add('indicator-online');
+                    break;
+                case 'offline':
+                    element.classList.add('indicator-offline');
+                    break;
+                case 'error':
+                    element.classList.add('indicator-error');
+                    break;
+            }
+        }
+        
+        // 更新服务器信息
+        function updateServerInfo(status) {
+            document.getElementById('serverInfo').textContent = status;
+        }
+        
+        // 更新采集状态
+        function updateAcquisitionStatus(status) {
+            if (status === 'started') {
+                isAcquisitionRunning = true;
+                startTime = Date.now();
+                updateIndicator('indicatorAcquisition', 'online');
+                document.getElementById('btnStart').disabled = true;
+                document.getElementById('btnStop').disabled = false;
+                document.getElementById('btnStartLogging').disabled = false;
+            } else if (status === 'stopped') {
+                isAcquisitionRunning = false;
+                updateIndicator('indicatorAcquisition', 'offline');
+                document.getElementById('btnStart').disabled = false;
+                document.getElementById('btnStop').disabled = true;
+            }
+        }
+        
+        // 更新记录状态
+        function updateRecordingStatus(status) {
+            if (status === 'started') {
+                isLogging = true;
+                document.getElementById('btnStartLogging').disabled = true;
+                document.getElementById('btnStopLogging').disabled = false;
+                document.getElementById('currentFileName').textContent = '记录中...';
+            } else if (status === 'stopped') {
+                isLogging = false;
+                document.getElementById('btnStartLogging').disabled = false;
+                document.getElementById('btnStopLogging').disabled = true;
+                document.getElementById('currentFileName').textContent = '未记录';
+            }
+        }
+        
+        // 获取可用串口
+        async function refreshPorts() {
+            try {
+                const response = await fetch('/api/ports');
+                const ports = await response.json();
+                
+                const select = document.getElementById('portSelect');
+                select.innerHTML = '<option value="">自动检测</option>';
+                
+                ports.forEach(port => {
+                    const option = document.createElement('option');
+                    option.value = port.port;
+                    option.textContent = `${port.port} - ${port.description}`;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('获取串口列表失败:', error);
+            }
+        }
+        
+        // 连接串口
+        async function connectSerial() {
+            const port = document.getElementById('portSelect').value;
+            const baudrate = document.getElementById('baudrateSelect').value;
+            
+            try {
+                const response = await fetch('/api/connect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        port: port || undefined,
+                        baudrate: parseInt(baudrate)
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    updateIndicator('indicatorSerial', 'online');
+                    document.getElementById('btnConnect').disabled = true;
+                    document.getElementById('btnDisconnect').disabled = false;
+                    document.getElementById('btnStart').disabled = false;
+                    
+                    alert('串口连接成功');
+                } else {
+                    alert('串口连接失败');
+                }
+            } catch (error) {
+                console.error('连接串口失败:', error);
+                alert('连接串口失败: ' + error.message);
+            }
+        }
+        
+        // 断开串口
+        async function disconnectSerial() {
+            try {
+                await fetch('/api/disconnect', {
+                    method: 'POST'
+                });
+                
+                updateIndicator('indicatorSerial', 'offline');
+                document.getElementById('btnConnect').disabled = false;
+                document.getElementById('btnDisconnect').disabled = true;
+                document.getElementById('btnStart').disabled = true;
+                document.getElementById('btnStop').disabled = true;
+                
+                alert('串口已断开');
+            } catch (error) {
+                console.error('断开串口失败:', error);
+            }
+        }
+        
+        // 开始数据采集
+        function startAcquisition() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'start_acquisition'
+                }));
+            } else {
+                alert('WebSocket未连接');
+            }
+        }
+        
+        // 停止数据采集
+        function stopAcquisition() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'stop_acquisition'
+                }));
+            }
+        }
+        
+        // 开始记录数据
+        function startLogging() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const filename = `teg_data_${timestamp}.csv`;
+                
+                socket.send(JSON.stringify({
+                    type: 'start_recording',
+                    filename: filename
+                }));
+                
+                document.getElementById('currentFileName').textContent = filename;
+            }
+        }
+        
+        // 停止记录数据
+        function stopLogging() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'stop_recording'
+                }));
+            }
+        }
+        
+        // 清空数据
+        function clearData() {
+            if (isAcquisitionRunning) {
+                alert('请先停止数据采集');
+                return;
+            }
+            
+            dataBuffer = [];
+            
+            // 清空图表
+            Object.values(charts).forEach(chart => {
+                chart.data.labels = [];
+                chart.data.datasets.forEach(dataset => {
+                    dataset.data = [];
+                });
+                chart.update();
+            });
+            
+            // 清空表格
+            document.getElementById('rawDataTable').innerHTML = `
+                <tr>
+                    <td colspan="6" class="text-center">等待数据...</td>
+                </tr>
+            `;
+            
+            // 重置显示
+            document.querySelectorAll('.metric-value').forEach(el => {
+                if (el.id.startsWith('metric')) {
+                    el.textContent = '--.--' + (el.id.includes('Temp') ? ' °C' : 
+                                               el.id.includes('Voltage') ? ' V' :
+                                               el.id.includes('Current') ? ' mA' :
+                                               el.id.includes('Power') ? ' mW' :
+                                               el.id.includes('Seebeck') ? ' mV/°C' :
+                                               el.id.includes('Efficiency') ? ' %' : '');
+                }
+            });
+            
+            document.getElementById('statDataPoints').textContent = '0';
+            document.getElementById('statSampleRate').textContent = '0.0 Hz';
+            document.getElementById('statUptime').textContent = '00:00:00';
+            
+            alert('数据已清空');
+        }
+        
+        // 导出数据
+        async function exportData() {
+            if (dataBuffer.length === 0) {
+                alert('没有数据可导出');
+                return;
+            }
+            
+            try {
+                // 转换为CSV格式
+                const headers = ['时间戳', '热端温度', '冷端温度', '温差', '电压', '电流', '功率', '塞贝克系数', '效率'];
+                const rows = dataBuffer.map(d => [
+                    d.timestamp,
+                    d.hot_temp,
+                    d.cold_temp,
+                    d.temp_diff,
+                    d.voltage,
+                    d.current,
+                    d.power,
+                    d.seebeck,
+                    d.efficiency
+                ]);
+                
+                const csvContent = [
+                    headers.join(','),
+                    ...rows.map(row => row.join(','))
+                ].join('\n');
+                
+                // 创建下载链接
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `teg_export_${Date.now()}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                alert('数据导出完成');
+            } catch (error) {
+                console.error('导出数据失败:', error);
+                alert('导出数据失败: ' + error.message);
+            }
+        }
+        
+        // 更新配置
+        async function updateConfig() {
+            const loadResistance = document.getElementById('configLoadResistance').value;
+            const tegResistance = document.getElementById('configTegResistance').value;
+            const seebeckCoeff = document.getElementById('configSeebeckCoeff').value;
+            const sampleRate = document.getElementById('configSampleRate').value;
+            
+            try {
+                await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        load_resistance: parseFloat(loadResistance),
+                        teg_resistance: parseFloat(tegResistance),
+                        seebeck_coefficient: parseFloat(seebeckCoeff)
+                    })
+                });
+                
+                // 更新采样率
+                clearInterval(updateInterval);
+                updateInterval = setInterval(() => {
+                    if (socket && socket.readyState === WebSocket.OPEN && isAcquisitionRunning) {
+                        socket.send(JSON.stringify({
+                            type: 'request_data',
+                            n_points: 1
+                        }));
+                    }
+                }, 1000 / sampleRate);
+                
+                alert('配置已更新');
+            } catch (error) {
+                console.error('更新配置失败:', error);
+                alert('更新配置失败: ' + error.message);
+            }
+        }
+        
+        // 切换图表显示
+        function toggleChart(chartId) {
+            const chart = charts[chartId];
+            const canvas = document.getElementById(chartId);
+            
+            if (canvas.style.display === 'none') {
+                canvas.style.display = 'block';
+                chart.resize();
+            } else {
+                canvas.style.display = 'none';
+            }
+        }
+        
+        // 切换原始数据显示
+        function toggleRawData() {
+            const table = document.getElementById('rawDataTable').parentNode.parentNode;
+            if (table.style.display === 'none') {
+                table.style.display = 'block';
+            } else {
+                table.style.display = 'none';
+            }
+        }
+        
+        // 切换全屏
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.error(`全屏请求失败: ${err.message}`);
+                });
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+        
+        // 显示系统信息
+        function showSystemInfo() {
+            const info = `
+                系统信息:
+                - 数据点数: ${dataBuffer.length}
+                - 缓冲区大小: ${maxDataPoints}
+                - 采样率: ${document.getElementById('statSampleRate').textContent}
+                - 运行时间: ${document.getElementById('statUptime').textContent}
+                - WebSocket状态: ${socket ? socket.readyState : '未连接'}
+                - 采集状态: ${isAcquisitionRunning ? '运行中' : '停止'}
+                - 记录状态: ${isLogging ? '记录中' : '停止'}
+            `;
+            
+            alert(info);
+        }
+        
+        // 开始更新循环
+        function startUpdateLoop() {
+            const sampleRate = document.getElementById('configSampleRate').value;
+            updateInterval = setInterval(() => {
+                if (socket && socket.readyState === WebSocket.OPEN && isAcquisitionRunning) {
+                    socket.send(JSON.stringify({
+                        type: 'request_data',
+                        n_points: 1
+                    }));
+                }
+            }, 1000 / sampleRate);
+        }
+        
+        // 页面卸载前清理
+        window.addEventListener('beforeunload', function() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.close();
+            }
+            
+            if (updateInterval) {
+                clearInterval(updateInterval);
+            }
+        });
+    </script>
+</body>
+</html>

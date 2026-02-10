@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TEG温差发电监测系统 - 混合模式</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- 网站标题 -->
+        <header>
+            <h1>🌡️ TEG温差发电监测系统</h1>
+            <p class="subtitle">混合模式 - 节能减排竞赛项目</p>
+            <p class="version">版本: 2.0 | 数据格式: CSV(时间戳,热端温度,冷端温度,电压,CH1,CH2,CH3)</p>
+        </header>
+        
+        <!-- 导航菜单 -->
+        <nav>
+            <a href="index.html" class="nav-link active">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-text">首页</span>
+            </a>
+            <a href="analysis.html" class="nav-link">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">数据分析</span>
+            </a>
+            <a href="realtime.html" class="nav-link">
+                <span class="nav-icon">📡</span>
+                <span class="nav-text">实时监测</span>
+            </a>
+            <a href="dashboard.html" class="nav-link">
+                <span class="nav-icon">📈</span>
+                <span class="nav-text">仪表板</span>
+            </a>
+        </nav>
+        
+        <!-- 状态栏 -->
+        <div class="status-bar" id="statusBar">
+            <div class="status-item">
+                <span class="status-label">服务器:</span>
+                <span class="status-value" id="serverStatus">离线</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">串口:</span>
+                <span class="status-value" id="serialStatus">断开</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">数据点:</span>
+                <span class="status-value" id="dataCount">0</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">采样率:</span>
+                <span class="status-value" id="sampleRate">0.0 Hz</span>
+            </div>
+        </div>
+        
+        <!-- 主要内容区 -->
+        <main>
+            <div class="card">
+                <h2 class="card-title">🚀 系统概述</h2>
+                <div class="card-content">
+                    <p>本系统采用混合模式架构，结合了Arduino数据采集、Python数据处理和Web可视化展示。</p>
+                    
+                    <div class="feature-list">
+                        <div class="feature-item">
+                            <div class="feature-icon">⚡</div>
+                            <div class="feature-content">
+                                <h3>高效数据采集</h3>
+                                <p>Arduino仅采集原始数据，减少计算负载，支持多通道扩展</p>
+                            </div>
+                        </div>
+                        
+                        <div class="feature-item">
+                            <div class="feature-icon">📈</div>
+                            <div class="feature-content">
+                                <h3>智能数据处理</h3>
+                                <p>Python后端进行数据计算、分析和存储，支持实时处理</p>
+                            </div>
+                        </div>
+                        
+                        <div class="feature-item">
+                            <div class="feature-icon">🌐</div>
+                            <div class="feature-content">
+                                <h3>丰富可视化</h3>
+                                <p>响应式Web界面，支持多图表展示和实时数据监控</p>
+                            </div>
+                        </div>
+                        
+                        <div class="feature-item">
+                            <div class="feature-icon">🔧</div>
+                            <div class="feature-content">
+                                <h3>易于扩展</h3>
+                                <p>模块化设计，支持功率-负载数据组等扩展功能</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2 class="card-title">🎯 技术规格</h2>
+                <div class="card-content">
+                    <div class="spec-grid">
+                        <div class="spec-item">
+                            <span class="spec-label">硬件平台</span>
+                            <span class="spec-value">Arduino Nano + ADS1115 + DS18B20</span>
+                        </div>
+                        <div class="spec-item">
+                            <span class="spec-label">数据格式</span>
+                            <span class="spec-value">CSV (时间戳,热端温度,冷端温度,电压...)</span>
+                        </div>
+                        <div class="spec-item">
+                            <span class="spec-label">采样率</span>
+                            <span class="spec-value">1-10 Hz (可配置)</span>
+                        </div>
+                        <div class="spec-item">
+                            <span class="spec-label">测量范围</span>
+                            <span class="spec-value">电压: ±2.048V, 温度: -55~125°C</span>
+                        </div>
+                        <div class="spec-item">
+                            <span class="spec-label">通信接口</span>
+                            <span class="spec-value">USB串口 + WebSocket + REST API</span>
+                        </div>
+                        <div class="spec-item">
+                            <span class="spec-label">扩展接口</span>
+                            <span class="spec-value">预留3个ADC通道，支持电流/负载监测</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2 class="card-title">🚦 快速开始</h2>
+                <div class="card-content">
+                    <ol class="quick-start">
+                        <li>
+                            <span class="step-number">1</span>
+                            <span class="step-text">上传 <code>monitor_v2.ino</code> 到Arduino</span>
+                        </li>
+                        <li>
+                            <span class="step-number">2</span>
+                            <span class="step-text">运行 <code>teg_server_hybrid.py</code> 启动服务器</span>
+                        </li>
+                        <li>
+                            <span class="step-number">3</span>
+                            <span class="step-text">打开浏览器访问 <code>http://localhost:5000</code></span>
+                        </li>
+                        <li>
+                            <span class="step-number">4</span>
+                            <span class="step-text">连接串口并开始数据采集</span>
+                        </li>
+                    </ol>
+                    
+                    <div class="action-buttons">
+                        <a href="realtime.html" class="btn btn-primary">
+                            <span class="btn-icon">▶️</span>
+                            <span class="btn-text">开始实时监测</span>
+                        </a>
+                        <a href="analysis.html" class="btn btn-secondary">
+                            <span class="btn-icon">📊</span>
+                            <span class="btn-text">数据分析</span>
+                        </a>
+                        <a href="dashboard.html" class="btn btn-success">
+                            <span class="btn-icon">📈</span>
+                            <span class="btn-text">仪表板</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2 class="card-title">📋 系统状态</h2>
+                <div class="card-content">
+                    <div class="system-status" id="systemStatus">
+                        <div class="status-loading">
+                            <div class="loading-spinner"></div>
+                            <span>正在连接服务器...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <!-- 页脚 -->
+        <footer>
+            <div class="footer-content">
+                <p class="copyright">© 2023 节能减排竞赛 - TEG温差发电能量收集项目</p>
+                <p class="footer-info">版本: 2.0 | 最后更新: <span id="lastUpdateTime">正在获取...</span></p>
+            </div>
+        </footer>
+    </div>
+    
+    <!-- JavaScript代码 -->
+    <script>
+        // 全局变量
+        let socket = null;
+        let serverConnected = false;
+        let lastUpdateTime = null;
+        
+        // DOM加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化时间显示
+            updateTime();
+            setInterval(updateTime, 1000);
+            
+            // 连接WebSocket服务器
+            connectWebSocket();
+            
+            // 获取系统状态
+            fetchSystemStatus();
+        });
+        
+        // 更新时间显示
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            
+            document.getElementById('lastUpdateTime').textContent = timeStr;
+            lastUpdateTime = now;
+        }
+        
+        // 连接WebSocket服务器
+        function connectWebSocket() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}`;
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = function() {
+                console.log('WebSocket连接成功');
+                serverConnected = true;
+                updateServerStatus('在线');
+                
+                // 请求最新数据
+                socket.send(JSON.stringify({
+                    type: 'request_data',
+                    n_points: 10
+                }));
+            };
+            
+            socket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (error) {
+                    console.error('消息解析错误:', error);
+                }
+            };
+            
+            socket.onerror = function(error) {
+                console.error('WebSocket错误:', error);
+                updateServerStatus('错误');
+            };
+            
+            socket.onclose = function() {
+                console.log('WebSocket连接关闭');
+                serverConnected = false;
+                updateServerStatus('离线');
+                
+                // 5秒后尝试重连
+                setTimeout(connectWebSocket, 5000);
+            };
+        }
+        
+        // 处理WebSocket消息
+        function handleWebSocketMessage(data) {
+            if (data.type === 'new_data') {
+                // 新数据
+                updateDataDisplay(data.data);
+            } else if (data.type === 'status_update') {
+                // 状态更新
+                updateSystemStatus(data.status);
+            } else if (data.type === 'data_response') {
+                // 数据响应
+                if (data.data && data.data.length > 0) {
+                    updateDataDisplay(data.data[data.data.length - 1]);
+                }
+            }
+        }
+        
+        // 更新服务器状态显示
+        function updateServerStatus(status) {
+            const statusElement = document.getElementById('serverStatus');
+            statusElement.textContent = status;
+            
+            switch (status) {
+                case '在线':
+                    statusElement.className = 'status-value status-online';
+                    break;
+                case '离线':
+                    statusElement.className = 'status-value status-offline';
+                    break;
+                case '错误':
+                    statusElement.className = 'status-value status-error';
+                    break;
+                default:
+                    statusElement.className = 'status-value';
+            }
+        }
+        
+        // 更新数据显示
+        function updateDataDisplay(data) {
+            // 更新数据计数
+            document.getElementById('dataCount').textContent = data.data_points || 0;
+            
+            // 更新采样率
+            if (data.sample_rate) {
+                document.getElementById('sampleRate').textContent = data.sample_rate.toFixed(1) + ' Hz';
+            }
+            
+            // 更新串口状态
+            if (data.serial_connected !== undefined) {
+                const serialStatus = document.getElementById('serialStatus');
+                serialStatus.textContent = data.serial_connected ? '已连接' : '断开';
+                serialStatus.className = data.serial_connected ? 'status-value status-online' : 'status-value status-offline';
+            }
+        }
+        
+        // 更新系统状态
+        function updateSystemStatus(status) {
+            const statusElement = document.getElementById('systemStatus');
+            
+            let html = '';
+            if (status === 'connected') {
+                html = `
+                    <div class="status-connected">
+                        <div class="status-icon">✅</div>
+                        <div class="status-details">
+                            <h3>系统正常运行</h3>
+                            <p>所有组件工作正常，可以开始数据采集</p>
+                        </div>
+                    </div>
+                `;
+            } else if (status === 'disconnected') {
+                html = `
+                    <div class="status-disconnected">
+                        <div class="status-icon">❌</div>
+                        <div class="status-details">
+                            <h3>系统未连接</h3>
+                            <p>请检查Arduino连接和服务器状态</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            statusElement.innerHTML = html;
+        }
+        
+        // 获取系统状态
+        async function fetchSystemStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                if (data.status === 'running') {
+                    updateSystemStatus('connected');
+                } else {
+                    updateSystemStatus('disconnected');
+                }
+            } catch (error) {
+                console.error('获取系统状态失败:', error);
+                updateSystemStatus('disconnected');
+            }
+        }
+        
+        // 发送WebSocket消息
+        function sendWebSocketMessage(message) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(message));
+            } else {
+                console.error('WebSocket未连接');
+            }
+        }
+        
+        // 开始数据采集
+        function startAcquisition() {
+            sendWebSocketMessage({
+                type: 'start_acquisition'
+            });
+        }
+        
+        // 停止数据采集
+        function stopAcquisition() {
+            sendWebSocketMessage({
+                type: 'stop_acquisition'
+            });
+        }
+    </script>
+</body>
+</html>

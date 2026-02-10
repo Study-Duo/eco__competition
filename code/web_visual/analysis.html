@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据分析 - TEG监测系统</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 TEG数据分析系统</h1>
+            <p class="subtitle">混合模式 - 数据文件分析与可视化</p>
+            <div class="header-actions">
+                <a href="index.html" class="btn btn-outline">
+                    <span class="btn-icon">←</span>
+                    <span class="btn-text">返回首页</span>
+                </a>
+                <button id="btnExportReport" class="btn btn-success" onclick="exportReport()" style="display: none;">
+                    <span class="btn-icon">📄</span>
+                    <span class="btn-text">导出报告</span>
+                </button>
+            </div>
+        </header>
+        
+        <!-- 导航菜单 -->
+        <nav>
+            <a href="index.html" class="nav-link">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-text">首页</span>
+            </a>
+            <a href="analysis.html" class="nav-link active">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">数据分析</span>
+            </a>
+            <a href="realtime.html" class="nav-link">
+                <span class="nav-icon">📡</span>
+                <span class="nav-text">实时监测</span>
+            </a>
+            <a href="dashboard.html" class="nav-link">
+                <span class="nav-icon">📈</span>
+                <span class="nav-text">仪表板</span>
+            </a>
+        </nav>
+        
+        <!-- 文件选择区域 -->
+        <div class="card">
+            <h2 class="card-title">📁 选择数据文件</h2>
+            <div class="card-content">
+                <div class="file-selector">
+                    <div class="upload-area" id="uploadArea">
+                        <input type="file" id="fileInput" accept=".csv,.txt" multiple style="display: none;">
+                        <div class="upload-icon">📂</div>
+                        <h3>上传数据文件</h3>
+                        <p>支持CSV格式，可拖拽文件到此处</p>
+                        <p class="upload-hint">或点击选择文件</p>
+                        <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                            <span class="btn-icon">📁</span>
+                            <span class="btn-text">选择文件</span>
+                        </button>
+                    </div>
+                    
+                    <div class="file-list" id="fileList" style="display: none;">
+                        <h3>已选择文件</h3>
+                        <div class="files-container" id="filesContainer"></div>
+                        <div class="file-actions">
+                            <button class="btn btn-success" onclick="analyzeSelectedFiles()">
+                                <span class="btn-icon">📊</span>
+                                <span class="btn-text">开始分析</span>
+                            </button>
+                            <button class="btn btn-outline" onclick="clearFiles()">
+                                <span class="btn-icon">🗑️</span>
+                                <span class="btn-text">清空列表</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="server-files" id="serverFiles" style="display: none;">
+                    <h3>服务器数据文件</h3>
+                    <div class="files-container" id="serverFilesContainer"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 分析配置 -->
+        <div class="card" id="analysisConfig" style="display: none;">
+            <h2 class="card-title">⚙️ 分析配置</h2>
+            <div class="card-content">
+                <div class="config-grid">
+                    <div class="form-group">
+                        <label for="analysisLoadResistance">负载电阻 (Ω):</label>
+                        <input type="number" id="analysisLoadResistance" value="10.0" step="0.1" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="analysisTegResistance">TEG内阻 (Ω):</label>
+                        <input type="number" id="analysisTegResistance" value="4.0" step="0.1" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="analysisSeebeckCoeff">塞贝克系数 (mV/°C):</label>
+                        <input type="number" id="analysisSeebeckCoeff" value="40.0" step="0.1" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="analysisSampleRate">采样率 (Hz):</label>
+                        <input type="number" id="analysisSampleRate" value="1.0" step="0.1" class="form-control">
+                    </div>
+                </div>
+                <div class="config-actions">
+                    <button class="btn btn-primary" onclick="applyAnalysisConfig()">
+                        <span class="btn-icon">💾</span>
+                        <span class="btn-text">应用配置</span>
+                    </button>
+                    <button class="btn btn-outline" onclick="resetAnalysisConfig()">
+                        <span class="btn-icon">🔄</span>
+                        <span class="btn-text">重置配置</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 分析结果 -->
+        <div class="analysis-results" id="analysisResults" style="display: none;">
+            <!-- 统计数据 -->
+            <div class="card">
+                <h2 class="card-title">📈 数据统计</h2>
+                <div class="card-content">
+                    <div class="stats-grid" id="analysisStats">
+                        <!-- 统计信息会动态显示在这里 -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 图表展示 -->
+            <div class="card">
+                <h2 class="card-title">📊 数据分析图表</h2>
+                <div class="card-content">
+                    <div class="chart-tabs">
+                        <div class="tab-buttons">
+                            <button class="tab-btn active" data-tab="tab1">温度特性</button>
+                            <button class="tab-btn" data-tab="tab2">电压特性</button>
+                            <button class="tab-btn" data-tab="tab3">功率特性</button>
+                            <button class="tab-btn" data-tab="tab4">特性曲线</button>
+                        </div>
+                        
+                        <div class="tab-content">
+                            <div class="tab-pane active" id="tab1">
+                                <div class="chart-row">
+                                    <div class="chart-container">
+                                        <canvas id="analysisTempChart"></canvas>
+                                    </div>
+                                    <div class="chart-stats">
+                                        <h4>温度统计</h4>
+                                        <div id="tempStats"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="tab-pane" id="tab2">
+                                <div class="chart-row">
+                                    <div class="chart-container">
+                                        <canvas id="analysisVoltageChart"></canvas>
+                                    </div>
+                                    <div class="chart-stats">
+                                        <h4>电压统计</h4>
+                                        <div id="voltageStats"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="tab-pane" id="tab3">
+                                <div class="chart-row">
+                                    <div class="chart-container">
+                                        <canvas id="analysisPowerChart"></canvas>
+                                    </div>
+                                    <div class="chart-stats">
+                                        <h4>功率统计</h4>
+                                        <div id="powerStats"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="tab-pane" id="tab4">
+                                <div class="chart-row">
+                                    <div class="chart-container">
+                                        <canvas id="analysisCharacteristicChart"></canvas>
+                                    </div>
+                                    <div class="chart-stats">
+                                        <h4>特性统计</h4>
+                                        <div id="characteristicStats"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 详细数据 -->
+            <div class="card">
+                <h2 class="card-title">📋 详细数据</h2>
+                <div class="card-content">
+                    <div class="data-controls">
+                        <div class="form-group">
+                            <label for="dataFilter">筛选条件:</label>
+                            <select id="dataFilter" class="form-control" onchange="filterData()">
+                                <option value="all">全部数据</option>
+                                <option value="temp_high">温差 > 5°C</option>
+                                <option value="voltage_high">电压 > 0.1V</option>
+                                <option value="power_high">功率 > 1mW</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="dataSort">排序方式:</label>
+                            <select id="dataSort" class="form-control" onchange="sortData()">
+                                <option value="timestamp">按时间</option>
+                                <option value="temp_diff">按温差</option>
+                                <option value="voltage">按电压</option>
+                                <option value="power">按功率</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="dataLimit">显示数量:</label>
+                            <input type="number" id="dataLimit" value="50" min="10" max="1000" class="form-control" onchange="updateDataTable()">
+                        </div>
+                    </div>
+                    
+                    <div class="data-table-container">
+                        <table class="data-table" id="analysisDataTable">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>时间</th>
+                                    <th>热端(°C)</th>
+                                    <th>冷端(°C)</th>
+                                    <th>温差(°C)</th>
+                                    <th>电压(V)</th>
+                                    <th>功率(mW)</th>
+                                    <th>塞贝克(mV/°C)</th>
+                                    <th>效率(%)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="analysisDataBody">
+                                <!-- 数据会动态显示在这里 -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="pagination" id="pagination">
+                        <!-- 分页控件会动态显示在这里 -->
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 报告生成 -->
+            <div class="card">
+                <h2 class="card-title">📄 分析报告</h2>
+                <div class="card-content">
+                    <div class="report-section">
+                        <h3>测试概述</h3>
+                        <div id="reportOverview">
+                            <!-- 报告概述会动态显示在这里 -->
+                        </div>
+                    </div>
+                    
+                    <div class="report-section">
+                        <h3>关键指标</h3>
+                        <div id="reportMetrics">
+                            <!-- 关键指标会动态显示在这里 -->
+                        </div>
+                    </div>
+                    
+                    <div class="report-section">
+                        <h3>结论与建议</h3>
+                        <div id="reportConclusion">
+                            <!-- 结论会动态显示在这里 -->
+                        </div>
+                    </div>
+                    
+                    <div class="report-actions">
+                        <button class="btn btn-primary" onclick="generateReport()">
+                            <span class="btn-icon">📄</span>
+                            <span class="btn-text">生成报告</span>
+                        </button>
+                        <button class="btn btn-success" onclick="exportAnalysisData()">
+                            <span class="btn-icon">📤</span>
+                            <span class="btn-text">导出数据</span>
+                        </button>
+                        <button class="btn btn-outline" onclick="saveAnalysisSession()">
+                            <span class="btn-icon">💾</span>
+                            <span class="btn-text">保存会话</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <div class="footer-content">
+                <p class="footer-info">
+                    数据格式: CSV(时间戳,热端温度,冷端温度,原始电压,CH1,CH2,CH3) | 
+                    支持文件: .csv, .txt | 
+                    最大文件大小: 10MB
+                </p>
+            </div>
+        </footer>
+    </div>
+    
+    <!-- JavaScript代码 -->
+    <script>
+        // 全局变量
+        let analysisData = [];
+        let filteredData = [];
+        let currentPage = 1;
+        let pageSize = 50;
+        let analysisCharts = {};
+        let selectedFiles = [];
+        
+        // DOM加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 设置文件上传事件
+            setupFileUpload();
+            
+            // 初始化标签页
+            setupTabs();
+            
+            // 加载服务器文件列表
+            loadServerFiles();
+        });
+        
+        // 设置文件上传
+        function setupFileUpload() {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            
+            // 点击上传区域
+            uploadArea.addEventListener('click', function(e) {
+                if (e.target !== fileInput) {
+                    fileInput.click();
+                }
+            });
+            
+            // 文件选择变化
+            fileInput.addEventListener('change', function(e) {
+                handleFileSelect(e.target.files);
+            });
+            
+            // 拖放功能
+            uploadArea.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                uploadArea.style.backgroundColor = '#e3f2fd';
+            });
+            
+            uploadArea.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                uploadArea.style.backgroundColor = '';
+            });
+            
+            uploadArea.addEventListener('drop', function(e) {
+                e.preventDefault();
+                uploadArea.style.backgroundColor = '';
+                
+                if (e.dataTransfer.files.length) {
+                    handleFileSelect(e.dataTransfer.files);
+                }
+            });
+        }
+        
+        // 处理文件选择
+        function handleFileSelect(files) {
+            selectedFiles = Array.from(files);
+            
+            // 显示文件列表
+            displayFileList();
+            
+            // 显示分析配置
+            document.getElementById('analysisConfig').style.display = 'block';
+        }
+        
+        // 显示文件列表
+        function displayFileList() {
+            const container = document.getElementById('filesContainer');
+            const fileList = document.getElementById('fileList');
+            
+            container.innerHTML = '';
+            
+            selectedFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <div class="file-icon">📄</div>
+                    <div class="file-info">
+                        <div class="file-name">${file.name}</div>
+                        <div class="file-size">${formatFileSize(file.size)}</div>
+                    </div>
+                    <button class="btn btn-sm btn-outline" onclick="removeFile(${index})">
+                        <span class="btn-icon">🗑️</span>
+                    </button>
+                `;
+                container.appendChild(fileItem);
+            });
+            
+            fileList.style.display = 'block';
+        }
+        
+        // 移除文件
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            displayFileList();
+            
+            if (selectedFiles.length === 0) {
+                document.getElementById('fileList').style.display = 'none';
+                document.getElementById('analysisConfig').style.display = 'none';
+            }
+        }
+        
+        // 清空文件列表
+        function clearFiles() {
+            selectedFiles = [];
+            document.getElementById('fileList').style.display = 'none';
+            document.getElementById('analysisConfig').style.display = 'none';
+            document.getElementById('fileInput').value = '';
+        }
+        
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        // 设置标签页
+        function setupTabs() {
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            
+            tabButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const tabId = this.getAttribute('data-tab');
+                    
+                    // 更新按钮状态
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    this.classList.add('active');
+                    
+                    // 显示对应的内容
+                    document.querySelectorAll('.tab-pane').forEach(pane => {
+                        pane.classList.remove('active');
+                    });
+                    document.getElementById(tabId).classList.add('active');
+                });
+            });
+        }
+        
+        // 加载服务器文件列表
+        async function loadServerFiles() {
+            try {
+                const response = await fetch('/api/saved_files');
+                const files = await response.json();
+                
+                if (files.length > 0) {
+                    const container = document.getElementById('serverFilesContainer');
+                    container.innerHTML = '';
+                    
+                    files.forEach(file => {
+                        const fileItem = document.createElement('div');
+                        fileItem.className = 'file-item';
+                        fileItem.innerHTML = `
+                            <div class="file-icon">💾</div>
+                            <div class="file-info">
+                                <div class="file-name">${file.name}</div>
+                                <div class="file-size">${formatFileSize(file.size)}</div>
+                                <div class="file-modified">${new Date(file.modified * 1000).toLocaleString()}</div>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn btn-sm btn-primary" onclick="loadServerFile('${file.name}')">
+                                    <span class="btn-icon">📊</span>
+                                    <span class="btn-text">分析</span>
+                                </button>
+                                <button class="btn btn-sm btn-outline" onclick="downloadServerFile('${file.name}')">
+                                    <span class="btn-icon">⬇️</span>
+                                    <span class="btn-text">下载</span>
+                                </button>
+                            </div>
+                        `;
+                        container.appendChild(fileItem);
+                    });
+                    
+                    document.getElementById('serverFiles').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('加载服务器文件失败:', error);
+            }
+        }
+        
+        // 加载服务器文件
+        async function loadServerFile(filename) {
+            try {
+                const response = await fetch(`/api/export/${filename}`);
+                const text = await response.text();
+                
+                // 解析数据
+                const data = parseCSV(text);
+                if (data.length > 0) {
+                    analysisData = data;
+                    filteredData = [...data];
+                    
+                    // 开始分析
+                    startAnalysis();
+                }
+            } catch (error) {
+                console.error('加载服务器文件失败:', error);
+                alert('加载文件失败: ' + error.message);
+            }
+        }
+        
+        // 下载服务器文件
+        async function downloadServerFile(filename) {
+            window.open(`/api/export/${filename}`, '_blank');
+        }
+        
+        // 分析选中的文件
+        async function analyzeSelectedFiles() {
+            if (selectedFiles.length === 0) {
+                alert('请先选择文件');
+                return;
+            }
+            
+            // 读取并合并所有文件
+            const allData = [];
+            
+            for (const file of selectedFiles) {
+                try {
+                    const text = await readFileAsText(file);
+                    const data = parseCSV(text);
+                    allData.push(...data);
+                } catch (error) {
+                    console.error(`读取文件 ${file.name} 失败:`, error);
+                    alert(`读取文件 ${file.name} 失败: ${error.message}`);
+                    return;
+                }
+            }
+            
+            if (allData.length > 0) {
+                analysisData = allData;
+                filteredData = [...allData];
+                
+                // 开始分析
+                startAnalysis();
+            } else {
+                alert('文件内容为空或格式不正确');
+            }
+        }
+        
+        // 读取文件为文本
+        function readFileAsText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    resolve(e.target.result);
+                };
+                reader.onerror = function(e) {
+                    reject(new Error('读取文件失败'));
+                };
+                reader.readAsText(file);
+            });
+        }
+        
+        // 解析CSV数据
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim());
+            const data = [];
+            
+            // 检查数据格式
+            const isNewFormat = headers.includes('voltage_raw_mV');
+            
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const values = line.split(',');
+                const row = {};
+                
+                if (isNewFormat) {
+                    // 新格式数据
+                    row.timestamp = parseFloat(values[0]) || 0;
+                    row.hot_temp = parseFloat(values[1]) || 0;
+                    row.cold_temp = parseFloat(values[2]) || 0;
+                    row.voltage_raw = parseFloat(values[3]) || 0;
+                    row.voltage = parseFloat(values[8]) || 0;
+                    row.current = parseFloat(values[9]) || 0;
+                    row.power = parseFloat(values[10]) || 0;
+                    row.seebeck = parseFloat(values[11]) || 0;
+                    row.efficiency = parseFloat(values[12]) || 0;
+                    row.temp_diff = row.hot_temp - row.cold_temp;
+                } else {
+                    // 旧格式数据或简化格式
+                    row.timestamp = parseFloat(values[0]) || Date.now();
+                    row.hot_temp = parseFloat(values[1]) || 0;
+                    row.cold_temp = parseFloat(values[2]) || 0;
+                    row.temp_diff = row.hot_temp - row.cold_temp;
+                    row.voltage = parseFloat(values[4]) || 0;
+                    row.voltage_raw = row.voltage * 1000;
+                    
+                    // 计算其他值
+                    const loadResistance = parseFloat(document.getElementById('analysisLoadResistance').value) || 10.0;
+                    row.current = row.voltage / loadResistance * 1000;
+                    row.power = row.voltage * row.current;
+                    row.seebeck = row.temp_diff !== 0 ? (row.voltage * 1000) / row.temp_diff : 0;
+                    
+                    // 计算效率
+                    if (row.temp_diff > 0.1 && row.hot_temp > 0) {
+                        const carnot = 1 - (row.cold_temp + 273.15) / (row.hot_temp + 273.15);
+                        row.efficiency = carnot > 0 ? (row.power / 1000) / (carnot * 100) * 100 : 0;
+                    } else {
+                        row.efficiency = 0;
+                    }
+                }
+                
+                data.push(row);
+            }
+            
+            return data;
+        }
+        
+        // 开始分析
+        function startAnalysis() {
+            // 显示分析结果区域
+            document.getElementById('analysisResults').style.display = 'block';
+            document.getElementById('btnExportReport').style.display = 'inline-block';
+            
+            // 计算统计数据
+            calculateStatistics();
+            
+            // 创建图表
+            createAnalysisCharts();
+            
+            // 更新数据表格
+            updateDataTable();
+            
+            // 生成报告
+            generateReport();
+        }
+        
+        // 计算统计数据
+        function calculateStatistics() {
+            if (analysisData.length === 0) return;
+            
+            // 提取数据列
+            const hotTemps = analysisData.map(d => d.hot_temp);
+            const coldTemps = analysisData.map(d => d.cold_temp);
+            const tempDiffs = analysisData.map(d => d.temp_diff);
+            const voltages = analysisData.map(d => d.voltage);
+            const powers = analysisData.map(d => d.power);
+            const seebecks = analysisData.filter(d => Math.abs(d.seebeck) < 1000).map(d => d.seebeck);
+            const efficiencies = analysisData.map(d => d.efficiency);
+            
+            // 计算统计值
+            const stats = {
+                dataPoints: analysisData.length,
+                duration: (analysisData[analysisData.length-1].timestamp - analysisData[0].timestamp) / 1000,
+                hotTemp: calculateStats(hotTemps, '°C'),
+                coldTemp: calculateStats(coldTemps, '°C'),
+                tempDiff: calculateStats(tempDiffs, '°C'),
+                voltage: calculateStats(voltages, 'V'),
+                power: calculateStats(powers, 'mW'),
+                seebeck: calculateStats(seebecks, 'mV/°C'),
+                efficiency: calculateStats(efficiencies, '%')
+            };
+            
+            // 显示统计信息
+            displayStatistics(stats);
+        }
+        
+        // 计算统计值
+        function calculateStats(data, unit) {
+            if (data.length === 0) {
+                return {
+                    min: `-- ${unit}`,
+                    max: `-- ${unit}`,
+                    mean: `-- ${unit}`,
+                    std: `-- ${unit}`
+                };
+            }
+            
+            const min = Math.min(...data);
+            const max = Math.max(...data);
+            const mean = data.reduce((a, b) => a + b, 0) / data.length;
+            const std = Math.sqrt(data.reduce((sq, n) => sq + Math.pow(n - mean, 2), 0) / data.length);
+            
+            return {
+                min: `${min.toFixed(2)} ${unit}`,
+                max: `${max.toFixed(2)} ${unit}`,
+                mean: `${mean.toFixed(2)} ${unit}`,
+                std: `${std.toFixed(2)} ${unit}`
+            };
+        }
+        
+        // 显示统计信息
+        function displayStatistics(stats) {
+            const container = document.getElementById('analysisStats');
+            
+            container.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-label">数据点数</div>
+                    <div class="stat-value">${stats.dataPoints}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">测试时长</div>
+                    <div class="stat-value">${stats.duration.toFixed(1)} s</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">热端温度</div>
+                    <div class="stat-value">${stats.hotTemp.mean}</div>
+                    <div class="stat-range">${stats.hotTemp.min} - ${stats.hotTemp.max}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">冷端温度</div>
+                    <div class="stat-value">${stats.coldTemp.mean}</div>
+                    <div class="stat-range">${stats.coldTemp.min} - ${stats.coldTemp.max}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">平均温差</div>
+                    <div class="stat-value">${stats.tempDiff.mean}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">平均电压</div>
+                    <div class="stat-value">${stats.voltage.mean}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">平均功率</div>
+                    <div class="stat-value">${stats.power.mean}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">塞贝克系数</div>
+                    <div class="stat-value">${stats.seebeck.mean}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">平均效率</div>
+                    <div class="stat-value">${stats.efficiency.mean}</div>
+                </div>
+            `;
+        }
+        
+        // 创建分析图表
+        function createAnalysisCharts() {
+            // 时间序列
+            const timeLabels = analysisData.map(d => 
+                new Date(d.timestamp).toLocaleTimeString()
+            );
+            
+            // 温度图表
+            createAnalysisChart('analysisTempChart', {
+                labels: timeLabels,
+                datasets: [
+                    {
+                        label: '热端温度',
+                        data: analysisData.map(d => d.hot_temp),
+                        borderColor: '#ff6384',
+                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                        fill: true
+                    },
+                    {
+                        label: '冷端温度',
+                        data: analysisData.map(d => d.cold_temp),
+                        borderColor: '#36a2eb',
+                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                        fill: true
+                    }
+                ]
+            });
+            
+            // 电压图表
+            createAnalysisChart('analysisVoltageChart', {
+                labels: timeLabels,
+                datasets: [
+                    {
+                        label: '开路电压',
+                        data: analysisData.map(d => d.voltage),
+                        borderColor: '#4bc0c0',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        fill: true
+                    }
+                ]
+            });
+            
+            // 功率图表
+            createAnalysisChart('analysisPowerChart', {
+                labels: timeLabels,
+                datasets: [
+                    {
+                        label: '输出功率',
+                        data: analysisData.map(d => d.power),
+                        borderColor: '#ff9f40',
+                        backgroundColor: 'rgba(255, 159, 64, 0.1)',
+                        fill: true
+                    }
+                ]
+            });
+            
+            // 特性曲线图表
+            createAnalysisChart('analysisCharacteristicChart', {
+                type: 'scatter',
+                datasets: [
+                    {
+                        label: '温差-电压特性',
+                        data: analysisData.map(d => ({
+                            x: d.temp_diff,
+                            y: d.voltage
+                        })),
+                        borderColor: '#9966ff',
+                        backgroundColor: 'rgba(153, 102, 255, 0.5)',
+                        pointRadius: 4
+                    }
+                ]
+            }, {
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: '温差 (°C)'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: '电压 (V)'
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 创建分析图表
+        function createAnalysisChart(canvasId, chartData, options = {}) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            
+            // 如果图表已存在，先销毁
+            if (analysisCharts[canvasId]) {
+                analysisCharts[canvasId].destroy();
+            }
+            
+            const defaultOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: '时间'
+                        }
+                    }
+                }
+            };
+            
+            const mergedOptions = { ...defaultOptions, ...options };
+            
+            analysisCharts[canvasId] = new Chart(ctx, {
+                type: chartData.type || 'line',
+                data: chartData,
+                options: mergedOptions
+            });
+        }
+        
+        // 更新数据表格
+        function updateDataTable() {
+            const tbody = document.getElementById('analysisDataBody');
+            const pagination = document.getElementById('pagination');
+            
+            // 计算分页
+            pageSize = parseInt(document.getElementById('dataLimit').value) || 50;
+            const totalPages = Math.ceil(filteredData.length / pageSize);
+            
+            // 确保当前页面有效
+            if (currentPage > totalPages) {
+                currentPage = totalPages || 1;
+            }
+            
+            // 获取当前页数据
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = Math.min(startIndex + pageSize, filteredData.length);
+            const pageData = filteredData.slice(startIndex, endIndex);
+            
+            // 清空表格
+            tbody.innerHTML = '';
+            
+            // 填充数据
+            pageData.forEach((data, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${startIndex + index + 1}</td>
+                    <td>${new Date(data.timestamp).toLocaleTimeString()}</td>
+                    <td>${data.hot_temp.toFixed(2)}</td>
+                    <td>${data.cold_temp.toFixed(2)}</td>
+                    <td>${data.temp_diff.toFixed(2)}</td>
+                    <td>${data.voltage.toFixed(3)}</td>
+                    <td>${data.power.toFixed(2)}</td>
+                    <td>${data.seebeck.toFixed(2)}</td>
+                    <td>${data.efficiency.toFixed(2)}</td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            // 更新分页控件
+            updatePagination(pagination, totalPages);
+        }
+        
+        // 更新分页控件
+        function updatePagination(element, totalPages) {
+            element.innerHTML = '';
+            
+            if (totalPages <= 1) return;
+            
+            // 上一页按钮
+            const prevButton = document.createElement('button');
+            prevButton.className = 'btn btn-sm btn-outline';
+            prevButton.innerHTML = '上一页';
+            prevButton.disabled = currentPage === 1;
+            prevButton.onclick = () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    updateDataTable();
+                }
+            };
+            element.appendChild(prevButton);
+            
+            // 页码显示
+            const pageInfo = document.createElement('span');
+            pageInfo.className = 'page-info';
+            pageInfo.textContent = `第 ${currentPage} 页，共 ${totalPages} 页`;
+            element.appendChild(pageInfo);
+            
+            // 下一页按钮
+            const nextButton = document.createElement('button');
+            nextButton.className = 'btn btn-sm btn-outline';
+            nextButton.innerHTML = '下一页';
+            nextButton.disabled = currentPage === totalPages;
+            nextButton.onclick = () => {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    updateDataTable();
+                }
+            };
+            element.appendChild(nextButton);
+        }
+        
+        // 筛选数据
+        function filterData() {
+            const filterType = document.getElementById('dataFilter').value;
+            
+            filteredData = analysisData.filter(data => {
+                switch (filterType) {
+                    case 'temp_high':
+                        return data.temp_diff > 5;
+                    case 'voltage_high':
+                        return data.voltage > 0.1;
+                    case 'power_high':
+                        return data.power > 1;
+                    default:
+                        return true; // 全部数据
+                }
+            });
+            
+            currentPage = 1;
+            updateDataTable();
+        }
+        
+        // 排序数据
+        function sortData() {
+            const sortType = document.getElementById('dataSort').value;
+            
+            filteredData.sort((a, b) => {
+                switch (sortType) {
+                    case 'timestamp':
+                        return a.timestamp - b.timestamp;
+                    case 'temp_diff':
+                        return b.temp_diff - a.temp_diff;
+                    case 'voltage':
+                        return b.voltage - a.voltage;
+                    case 'power':
+                        return b.power - a.power;
+                    default:
+                        return 0;
+                }
+            });
+            
+            currentPage = 1;
+            updateDataTable();
+        }
+        
+        // 生成报告
+        function generateReport() {
+            if (analysisData.length === 0) return;
+            
+            // 计算报告数据
+            const hotTempMean = analysisData.reduce((sum, d) => sum + d.hot_temp, 0) / analysisData.length;
+            const coldTempMean = analysisData.reduce((sum, d) => sum + d.cold_temp, 0) / analysisData.length;
+            const tempDiffMean = analysisData.reduce((sum, d) => sum + d.temp_diff, 0) / analysisData.length;
+            const voltageMean = analysisData.reduce((sum, d) => sum + d.voltage, 0) / analysisData.length;
+            const powerMean = analysisData.reduce((sum, d) => sum + d.power, 0) / analysisData.length;
+            const powerMax = Math.max(...analysisData.map(d => d.power));
+            const seebeckMean = analysisData.filter(d => Math.abs(d.seebeck) < 1000)
+                .reduce((sum, d) => sum + d.seebeck, 0) / analysisData.length;
+            
+            // 更新报告概述
+            document.getElementById('reportOverview').innerHTML = `
+                <p>本次测试共采集了 <strong>${analysisData.length}</strong> 个数据点，
+                测试时长为 <strong>${((analysisData[analysisData.length-1].timestamp - analysisData[0].timestamp) / 1000).toFixed(1)}</strong> 秒。</p>
+                <p>测试期间热端平均温度为 <strong>${hotTempMean.toFixed(2)}°C</strong>，
+                冷端平均温度为 <strong>${coldTempMean.toFixed(2)}°C</strong>，
+                平均温差为 <strong>${tempDiffMean.toFixed(2)}°C</strong>。</p>
+            `;
+            
+            // 更新关键指标
+            document.getElementById('reportMetrics').innerHTML = `
+                <div class="metrics-grid">
+                    <div class="metric-item">
+                        <div class="metric-label">最大输出功率</div>
+                        <div class="metric-value">${powerMax.toFixed(2)} mW</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-label">平均输出功率</div>
+                        <div class="metric-value">${powerMean.toFixed(2)} mW</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-label">平均开路电压</div>
+                        <div class="metric-value">${voltageMean.toFixed(3)} V</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-label">塞贝克系数</div>
+                        <div class="metric-value">${seebeckMean.toFixed(2)} mV/°C</div>
+                    </div>
+                </div>
+            `;
+            
+            // 更新结论与建议
+            document.getElementById('reportConclusion').innerHTML = `
+                <p>根据测试数据分析，TEG模块在 <strong>${tempDiffMean.toFixed(2)}°C</strong> 温差下，
+                能够产生 <strong>${voltageMean.toFixed(3)}V</strong> 的开路电压，
+                最大输出功率达到 <strong>${powerMax.toFixed(2)}mW</strong>。</p>
+                <p><strong>建议:</strong></p>
+                <ul>
+                    <li>增大温差可显著提高输出功率</li>
+                    <li>优化热端散热设计，提高热传导效率</li>
+                    <li>根据负载特性匹配最佳负载电阻</li>
+                    <li>考虑多片TEG串联或并联以提高电压或电流</li>
+                </ul>
+            `;
+        }
+        
+        // 导出报告
+        function exportReport() {
+            const reportContent = `
+                TEG温差发电测试报告
+                ====================
+                
+                测试概述
+                --------
+                ${document.getElementById('reportOverview').textContent}
+                
+                关键指标
+                --------
+                ${document.getElementById('reportMetrics').textContent}
+                
+                结论与建议
+                ----------
+                ${document.getElementById('reportConclusion').textContent}
+                
+                测试时间: ${new Date().toLocaleString()}
+                数据点数: ${analysisData.length}
+                测试时长: ${((analysisData[analysisData.length-1].timestamp - analysisData[0].timestamp) / 1000).toFixed(1)} 秒
+            `;
+            
+            // 创建下载链接
+            const blob = new Blob([reportContent], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `teg_report_${Date.now()}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        // 导出分析数据
+        function exportAnalysisData() {
+            if (analysisData.length === 0) {
+                alert('没有数据可导出');
+                return;
+            }
+            
+            // 转换为CSV格式
+            const headers = ['时间戳', '热端温度(°C)', '冷端温度(°C)', '温差(°C)', '开路电压(V)', '电流(mA)', '功率(mW)', '塞贝克系数(mV/°C)', '效率(%)'];
+            const rows = analysisData.map(d => [
+                d.timestamp,
+                d.hot_temp.toFixed(2),
+                d.cold_temp.toFixed(2),
+                d.temp_diff.toFixed(2),
+                d.voltage.toFixed(3),
+                d.current.toFixed(1),
+                d.power.toFixed(2),
+                d.seebeck.toFixed(2),
+                d.efficiency.toFixed(2)
+            ]);
+            
+            const csvContent = [
+                headers.join(','),
+                ...rows.map(row => row.join(','))
+            ].join('\n');
+            
+            // 创建下载链接
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `teg_analysis_${Date.now()}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        // 保存分析会话
+        function saveAnalysisSession() {
+            const sessionData = {
+                files: selectedFiles.map(f => f.name),
+                config: {
+                    loadResistance: document.getElementById('analysisLoadResistance').value,
+                    tegResistance: document.getElementById('analysisTegResistance').value,
+                    seebeckCoeff: document.getElementById('analysisSeebeckCoeff').value,
+                    sampleRate: document.getElementById('analysisSampleRate').value
+                },
+                analysisData: analysisData,
+                timestamp: Date.now()
+            };
+            
+            // 保存到localStorage
+            localStorage.setItem('teg_analysis_session', JSON.stringify(sessionData));
+            alert('分析会话已保存');
+        }
+        
+        // 应用分析配置
+        function applyAnalysisConfig() {
+            alert('配置已应用');
+        }
+        
+        // 重置分析配置
+        function resetAnalysisConfig() {
+            document.getElementById('analysisLoadResistance').value = '10.0';
+            document.getElementById('analysisTegResistance').value = '4.0';
+            document.getElementById('analysisSeebeckCoeff').value = '40.0';
+            document.getElementById('analysisSampleRate').value = '1.0';
+            alert('配置已重置');
+        }
+    </script>
+</body>
+</html>
