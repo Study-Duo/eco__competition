@@ -670,10 +670,10 @@ class TEGVisualizer:
                     temp_utilization = self.stats.get('平均电压', 0) / hot_max * 1000
                     f.write(f"温度利用效率: {temp_utilization:.2f} mV/°C (每°C热端温度产生的mV)\n")
                 
-                # 计算功率密度（假设TEG面积1cm²）
-                teg_area = 1.0  # cm²
+                # 计算功率密度（TEG面积16cm²）
+                teg_area = 16.0  # cm²
                 power_density = self.stats.get('最大功率', 0) / teg_area
-                f.write(f"最大功率密度: {power_density:.2f} mW/cm² (假设TEG面积1cm²)\n")
+                f.write(f"最大功率密度: {power_density:.2f} mW/cm² (假设TEG面积16cm²)\n")
                 
                 # 温差稳定性
                 temp_diff_std = self.df['温差(°C)'].std()
